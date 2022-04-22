@@ -21,7 +21,7 @@ type Connector interface {
 
 // Closer is an interface for closing a RabbitMQ connection
 type Closer interface {
-	Close() (err error)
+	Close() (done chan struct{})
 }
 
 // QueueCreator is the interface for creating, binding and unbinding queues

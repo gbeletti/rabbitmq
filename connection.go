@@ -1,6 +1,10 @@
 package rabbitmq
 
-import amqp "github.com/rabbitmq/amqp091-go"
+import (
+	"log"
+
+	amqp "github.com/rabbitmq/amqp091-go"
+)
 
 // Connect connects to the rabbitMQ server and also creates the channels to produce and consume messages
 func (r *rabbit) Connect(config ConfigConnection) (notify chan *amqp.Error, err error) {
@@ -24,18 +28,23 @@ func (r *rabbit) Connect(config ConfigConnection) (notify chan *amqp.Error, err 
 	return
 }
 
-func (r *rabbit) Close() (err error) {
-	defer func() {
+func (r *rabbit) Close() (done chan struct{}) {
+	done = make(chan struct{})
+	go func() {
+		defer close(done)
+		r.wgChannel.Wait()
+		err := r.chConsumer.Close()
+		if err != nil {
+			log.Printf("Error closing consumer channel: [%s]\n", err)
+		}
+		err = r.chProducer.Close()
+		if err != nil {
+			log.Printf("Error closing producer channel: [%s]\n", err)
+		}
 		err = r.conn.Close()
+		if err != nil {
+			log.Printf("Error closing connection: [%s]\n", err)
+		}
 	}()
-	r.wgChannel.Wait()
-	err = r.chConsumer.Close()
-	if err != nil {
-		return
-	}
-	err = r.chProducer.Close()
-	if err != nil {
-		return
-	}
 	return
 }
