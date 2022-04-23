@@ -1,6 +1,7 @@
 package rabbitmq
 
 import (
+	"context"
 	"log"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -28,11 +29,22 @@ func (r *rabbit) Connect(config ConfigConnection) (notify chan *amqp.Error, err 
 	return
 }
 
-func (r *rabbit) Close() (done chan struct{}) {
+// Close closes the rabbitMQ connection
+func (r *rabbit) Close(ctx context.Context) (done chan struct{}) {
 	done = make(chan struct{})
+
+	doneWaiting := make(chan struct{})
+	go func() {
+		r.wgChannel.Wait()
+		close(doneWaiting)
+	}()
+
 	go func() {
 		defer close(done)
-		r.wgChannel.Wait()
+		select { // either waits for the messages to process or timeout from context
+		case <-doneWaiting:
+		case <-ctx.Done():
+		}
 		err := r.chConsumer.Close()
 		if err != nil {
 			log.Printf("Error closing consumer channel: [%s]\n", err)
