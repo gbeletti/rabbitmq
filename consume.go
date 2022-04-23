@@ -8,6 +8,8 @@ import (
 
 // Consume starts consuming messages from a queue until the context is canceled
 func (r *rabbit) Consume(ctx context.Context, config ConfigConsume, f func(*amqp.Delivery)) (err error) {
+	r.wgChannel.Add(1)
+	defer r.wgChannel.Done()
 	var msgs <-chan amqp.Delivery
 	msgs, err = r.chConsumer.Consume(
 		config.QueueName,
@@ -21,9 +23,13 @@ func (r *rabbit) Consume(ctx context.Context, config ConfigConsume, f func(*amqp
 	if err != nil {
 		return
 	}
+	var allCanceled bool
 	for {
 		select {
-		case msg := <-msgs:
+		case msg, ok := <-msgs:
+			if !ok {
+				return
+			}
 			r.wgChannel.Add(1)
 			if config.ExecuteConcurrent {
 				go func() {
@@ -35,8 +41,12 @@ func (r *rabbit) Consume(ctx context.Context, config ConfigConsume, f func(*amqp
 				r.wgChannel.Done()
 			}
 		case <-ctx.Done():
+			if allCanceled {
+				continue
+			}
 			err = r.chConsumer.Cancel(config.Consumer, false)
-			return
+			allCanceled = true
+			continue
 		}
 	}
 }
