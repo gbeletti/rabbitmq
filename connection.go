@@ -45,18 +45,29 @@ func (r *rabbit) Close(ctx context.Context) (done chan struct{}) {
 		case <-doneWaiting:
 		case <-ctx.Done():
 		}
-		err := r.chConsumer.Close()
+		closeConnections(r)
+	}()
+	return
+}
+
+func closeConnections(r *rabbit) {
+	var err error
+	if r.chConsumer != nil {
+		err = r.chConsumer.Close()
 		if err != nil {
 			log.Printf("Error closing consumer channel: [%s]\n", err)
 		}
+	}
+	if r.chProducer != nil {
 		err = r.chProducer.Close()
 		if err != nil {
 			log.Printf("Error closing producer channel: [%s]\n", err)
 		}
+	}
+	if r.conn != nil {
 		err = r.conn.Close()
 		if err != nil {
 			log.Printf("Error closing connection: [%s]\n", err)
 		}
-	}()
-	return
+	}
 }
