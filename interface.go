@@ -40,3 +40,16 @@ type Consumer interface {
 type Publisher interface {
 	Publish(ctx context.Context, obj interface{}, config ConfigPublish) (err error)
 }
+
+// RabbitSetup is the interface for setting up the RabbitMQ queues and exchanges after the connection is made
+type RabbitSetup interface {
+	Setup()
+}
+
+// Setup is a type that implements the RabbitSetup interface
+type Setup func()
+
+// Setup executes the setup function
+func (s Setup) Setup() {
+	s()
+}
