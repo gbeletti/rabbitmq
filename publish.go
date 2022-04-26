@@ -6,6 +6,7 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+// Publish publishes body to exchange with routing key
 func (r *rabbit) Publish(ctx context.Context, body []byte, config ConfigPublish) (err error) {
 	r.wgChannel.Add(1)
 	defer r.wgChannel.Done()
