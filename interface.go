@@ -12,6 +12,7 @@ type RabbitMQ interface {
 	Closer
 	QueueCreator
 	Consumer
+	Publisher
 }
 
 // Connector is an interface for connecting to a RabbitMQ server
@@ -38,7 +39,7 @@ type Consumer interface {
 
 // Publisher is the interface for publishing messages to an exchange
 type Publisher interface {
-	Publish(ctx context.Context, obj interface{}, config ConfigPublish) (err error)
+	Publish(ctx context.Context, body []byte, config ConfigPublish) (err error)
 }
 
 // RabbitSetup is the interface for setting up the RabbitMQ queues and exchanges after the connection is made
