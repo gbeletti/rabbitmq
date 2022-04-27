@@ -2,7 +2,7 @@
 
 ## Overview
 
-This library aims to simplify the creation of a rabbitMQ package on a Go service. Hopefully you can create your queue package in your service in an easier way.
+This library aims to simplify the creation of a rabbitMQ package on a Go service. Hopefully it will make your life easier.
 
 ## Installation
 
@@ -126,7 +126,7 @@ go func() {
 }()
 ```
 
-It is important that the context has cancel, so when it is canceled it will stop consuming messages from queue. You can share the same context used on the connection.
+It is important that the context has cancel, so when it is canceled it will stop consuming messages from queue. You can share the same context used in the connection.
 
 ## Reference
 
