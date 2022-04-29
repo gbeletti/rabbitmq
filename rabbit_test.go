@@ -2,6 +2,7 @@ package rabbitmq_test
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"testing"
@@ -10,7 +11,9 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-func setupRabbitContainer(t *testing.T) (uri string) {
+var waitFlag = flag.Bool("wait", false, "wait after test is done")
+
+func setupRabbitContainer(t *testing.T) (uri, uiURL string) {
 	ctx := context.Background()
 	req := testcontainers.ContainerRequest{
 		Image:        "rabbitmq:3-management-alpine",
@@ -41,6 +44,12 @@ func setupRabbitContainer(t *testing.T) (uri string) {
 		t.Fatalf("failed to get rabbitmq container mapped port: %s", err)
 		return
 	}
+
+	mappedPortUI, err := container.MappedPort(ctx, "15672")
+	if err != nil {
+		t.Fatalf("failed to get rabbitmq container mapped port: %s", err)
+		return
+	}
 	t.Cleanup(func() {
 		if err := container.Terminate(ctx); err != nil {
 			t.Logf("failed to terminate rabbitmq container: %s", err)
@@ -48,8 +57,10 @@ func setupRabbitContainer(t *testing.T) (uri string) {
 	})
 
 	uri = fmt.Sprintf("amqp://guest:guest@%s:%s?heartbeat=30&connection_timeout=120", ip, mappedPort.Port())
+	uiURL = fmt.Sprintf("http://%s:%s", ip, mappedPortUI.Port())
 	os.Setenv("RABBITMQ_URI", uri)
 	t.Logf("rabbitmq uri: %s", uri)
+	t.Logf("rabbitmq ui url: %s", uiURL)
 	return
 }
 

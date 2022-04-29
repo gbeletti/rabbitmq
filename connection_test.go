@@ -9,8 +9,8 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-func TestConnection(t *testing.T) {
-	uri := setupRabbitContainer(t)
+func TestRabbit(t *testing.T) {
+	uri, uiURL := setupRabbitContainer(t)
 	rabbit := rabbitmq.NewRabbitMQ()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
@@ -26,6 +26,17 @@ func TestConnection(t *testing.T) {
 		t.Error("timeout, failed to open rabbitmq connection")
 	case <-notifClose:
 		t.Error("rabbitmq connection closed")
+	}
+	msg := "Hello World!"
+	createQueueTest(t, ctx, rabbit)
+	publishTest(t, ctx, rabbit, msg)
+	msgConsumed := consumeTest(t, ctx, rabbit)
+	if msgConsumed != msg {
+		t.Errorf("expected message '%s', got '%s'", msg, msgConsumed)
+	}
+	if *waitFlag {
+		t.Logf("waiting 60 seconds. Go to %s for rabbit UI", uiURL)
+		time.Sleep(time.Second * 60)
 	}
 }
 
