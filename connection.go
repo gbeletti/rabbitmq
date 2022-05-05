@@ -46,7 +46,7 @@ func (r *rabbit) Close(ctx context.Context) (done chan struct{}) {
 
 	doneWaiting := make(chan struct{})
 	go func() {
-		r.wgChannel.Wait()
+		r.wg.Wait()
 		close(doneWaiting)
 	}()
 
