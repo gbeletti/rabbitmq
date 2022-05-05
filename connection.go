@@ -16,11 +16,11 @@ var muxNotifyOpenConn, muxNotifySetup sync.Mutex = sync.Mutex{}, sync.Mutex{}
 // It can also notify the connection is open to other goroutines if the function NotifyOpenConnection
 // is called before connecting.
 func (r *rabbit) Connect(config ConfigConnection) (notify chan *amqp.Error, err error) {
-	notify = make(chan *amqp.Error)
 	r.conn, err = amqp.Dial(config.URI)
 	if err != nil {
 		return
 	}
+	notify = make(chan *amqp.Error)
 	r.conn.NotifyClose(notify)
 	r.chProducer, err = r.conn.Channel()
 	if err != nil {
