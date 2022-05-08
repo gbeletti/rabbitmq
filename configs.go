@@ -29,6 +29,17 @@ type ConfigBindQueue struct {
 	Args       amqp.Table
 }
 
+// ConfigExchange is the configuration for the exchange
+type ConfigExchange struct {
+	Name       string
+	Type       string
+	Durable    bool
+	AutoDelete bool
+	Internal   bool
+	NoWait     bool
+	Args       amqp.Table
+}
+
 // ConfigConsume is the configuration for the consumer
 type ConfigConsume struct {
 	QueueName         string
