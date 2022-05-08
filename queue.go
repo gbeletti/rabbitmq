@@ -2,6 +2,7 @@ package rabbitmq
 
 import amqp "github.com/rabbitmq/amqp091-go"
 
+// CreateQueue creates a queue
 func (r *rabbit) CreateQueue(config ConfigQueue) (queue amqp.Queue, err error) {
 	queue, err = r.chConsumer.QueueDeclare(
 		config.Name,
@@ -13,6 +14,8 @@ func (r *rabbit) CreateQueue(config ConfigQueue) (queue amqp.Queue, err error) {
 	)
 	return
 }
+
+// BindQueueExchange binds a queue to an exchange
 func (r *rabbit) BindQueueExchange(config ConfigBindQueue) (err error) {
 	err = r.chConsumer.QueueBind(
 		config.QueueName,
@@ -23,6 +26,8 @@ func (r *rabbit) BindQueueExchange(config ConfigBindQueue) (err error) {
 	)
 	return
 }
+
+// UnbindQueueExchange unbinds a queue from an exchange
 func (r *rabbit) UnbindQueueExchange(config ConfigBindQueue) (err error) {
 	err = r.chConsumer.QueueUnbind(
 		config.QueueName,
