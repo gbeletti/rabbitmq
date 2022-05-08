@@ -1,15 +1,14 @@
 package rabbitmq_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/gbeletti/rabbitmq"
 )
 
-func createQueueTest(t *testing.T, ctx context.Context, rabbit rabbitmq.QueueCreator) {
+func createQueueTest(t *testing.T, rabbit rabbitmq.QueueCreator, queue string) {
 	config := rabbitmq.ConfigQueue{
-		Name:       "test",
+		Name:       queue,
 		Durable:    true,
 		AutoDelete: false,
 		Exclusive:  false,
@@ -19,5 +18,19 @@ func createQueueTest(t *testing.T, ctx context.Context, rabbit rabbitmq.QueueCre
 	_, err := rabbit.CreateQueue(config)
 	if err != nil {
 		t.Errorf("error creating queue: %s\n", err)
+	}
+}
+
+func bindQueueTest(t *testing.T, rabbit rabbitmq.QueueBinder, exchange, queue string) {
+	config := rabbitmq.ConfigBindQueue{
+		QueueName:  queue,
+		RoutingKey: queue,
+		Exchange:   exchange,
+		NoWait:     false,
+		Args:       nil,
+	}
+	err := rabbit.BindQueueExchange(config)
+	if err != nil {
+		t.Errorf("exchange [%s] queue [%s] error binding queue: %s\n", exchange, queue, err)
 	}
 }
