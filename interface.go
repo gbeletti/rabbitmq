@@ -12,6 +12,7 @@ type RabbitMQ interface {
 	Closer
 	QueueCreator
 	QueueBinder
+	ExchangeCreator
 	Consumer
 	Publisher
 }
@@ -35,6 +36,11 @@ type QueueCreator interface {
 type QueueBinder interface {
 	BindQueueExchange(config ConfigBindQueue) (err error)
 	UnbindQueueExchange(config ConfigBindQueue) (err error)
+}
+
+// ExchangeCreator is the interface for creating exchanges
+type ExchangeCreator interface {
+	CreateExchange(config ConfigExchange) (err error)
 }
 
 // Consumer is the interface for consuming messages from a queue
