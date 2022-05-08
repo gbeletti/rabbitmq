@@ -28,12 +28,13 @@ func TestRabbit(t *testing.T) {
 		t.Error("rabbitmq connection closed")
 	}
 	msg := "Hello World!"
-	createQueueTest(t, ctx, rabbit)
-	publishTest(t, ctx, rabbit, msg)
-	msgConsumed := consumeTest(t, ctx, rabbit)
-	if msgConsumed != msg {
-		t.Errorf("expected message '%s', got '%s'", msg, msgConsumed)
-	}
+	queue := "testqueue"
+	exchange := "testexchange"
+	createQueueTest(t, rabbit, queue)
+	publishAndConsume(t, ctx, rabbit, "", queue, msg)
+	createExchangeTest(t, rabbit, exchange, "direct")
+	bindQueueTest(t, rabbit, exchange, queue)
+	publishAndConsume(t, ctx, rabbit, exchange, queue, msg)
 	if *waitFlag {
 		t.Logf("waiting 60 seconds. Go to %s for rabbit UI", uiURL)
 		time.Sleep(time.Second * 60)
