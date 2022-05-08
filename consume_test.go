@@ -8,7 +8,7 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-func consumeTest(t *testing.T, ctx context.Context, rabbit rabbitmq.Consumer) (msg string) {
+func consumeTest(t *testing.T, ctx context.Context, rabbit rabbitmq.Consumer, queue string) (msg string) {
 	ctxCancel, cancel := context.WithCancel(ctx)
 	defer cancel()
 	gotMessage := make(chan string)
@@ -21,7 +21,7 @@ func consumeTest(t *testing.T, ctx context.Context, rabbit rabbitmq.Consumer) (m
 	}
 	go func() {
 		config := rabbitmq.ConfigConsume{
-			QueueName:         "test",
+			QueueName:         queue,
 			Consumer:          "test",
 			AutoAck:           false,
 			Exclusive:         false,
