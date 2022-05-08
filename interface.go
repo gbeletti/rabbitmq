@@ -11,6 +11,7 @@ type RabbitMQ interface {
 	Connector
 	Closer
 	QueueCreator
+	QueueBinder
 	Consumer
 	Publisher
 }
@@ -25,9 +26,13 @@ type Closer interface {
 	Close(ctx context.Context) (done chan struct{})
 }
 
-// QueueCreator is the interface for creating, binding and unbinding queues
+// QueueCreator is the interface for creating
 type QueueCreator interface {
 	CreateQueue(config ConfigQueue) (queue amqp.Queue, err error)
+}
+
+// QueueBinder is the interface for binding and unbinding queues
+type QueueBinder interface {
 	BindQueueExchange(config ConfigBindQueue) (err error)
 	UnbindQueueExchange(config ConfigBindQueue) (err error)
 }
