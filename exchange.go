@@ -2,7 +2,7 @@ package rabbitmq
 
 // CreateExchange creates an exchange
 func (r *rabbit) CreateExchange(config ConfigExchange) (err error) {
-	err = r.chProducer.ExchangeDeclare(
+	err = r.chConsumer.ExchangeDeclare(
 		config.Name,
 		config.Type,
 		config.Durable,
