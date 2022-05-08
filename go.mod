@@ -3,6 +3,7 @@ module github.com/gbeletti/rabbitmq
 go 1.18
 
 require (
+	github.com/google/go-cmp v0.5.5
 	github.com/rabbitmq/amqp091-go v1.3.4
 	github.com/testcontainers/testcontainers-go v0.13.0
 )

@@ -35,6 +35,8 @@ func TestRabbit(t *testing.T) {
 	createExchangeTest(t, rabbit, exchange, "direct")
 	bindQueueTest(t, rabbit, exchange, queue)
 	publishAndConsume(t, ctx, rabbit, exchange, queue, msg)
+	unbindQueueTest(t, rabbit, exchange, queue)
+	publishAndConsume(t, ctx, rabbit, "", queue, msg)
 	if *waitFlag {
 		t.Logf("waiting 60 seconds. Go to %s for rabbit UI", uiURL)
 		time.Sleep(time.Second * 60)
