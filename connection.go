@@ -20,8 +20,6 @@ func (r *rabbit) Connect(config ConfigConnection) (notify chan *amqp.Error, err 
 	if err != nil {
 		return
 	}
-	notify = make(chan *amqp.Error)
-	r.conn.NotifyClose(notify)
 	r.chProducer, err = r.conn.Channel()
 	if err != nil {
 		return
@@ -37,6 +35,8 @@ func (r *rabbit) Connect(config ConfigConnection) (notify chan *amqp.Error, err 
 		}
 	}
 	notifyOpenConnections()
+	notify = make(chan *amqp.Error)
+	r.conn.NotifyClose(notify)
 	return
 }
 
