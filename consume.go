@@ -8,6 +8,9 @@ import (
 
 // Consume starts consuming messages from a queue until the context is canceled
 func (r *rabbit) Consume(ctx context.Context, config ConfigConsume, f func(*amqp.Delivery)) (err error) {
+	if r.chConsumer == nil {
+		return amqp.ErrClosed
+	}
 	r.wg.Add(1)
 	defer r.wg.Done()
 	var msgs <-chan amqp.Delivery

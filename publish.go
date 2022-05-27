@@ -8,6 +8,9 @@ import (
 
 // Publish publishes body to exchange with routing key
 func (r *rabbit) Publish(ctx context.Context, body []byte, config ConfigPublish) (err error) {
+	if r.chConsumer == nil {
+		return amqp.ErrClosed
+	}
 	r.wg.Add(1)
 	defer r.wg.Done()
 	err = r.chProducer.Publish(
