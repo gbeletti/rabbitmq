@@ -13,7 +13,8 @@ func (r *rabbit) Publish(ctx context.Context, body []byte, config ConfigPublish)
 	}
 	r.wg.Add(1)
 	defer r.wg.Done()
-	err = r.chProducer.Publish(
+	err = r.chProducer.PublishWithContext(
+		ctx,
 		config.Exchange,
 		config.RoutingKey,
 		config.Mandatory,
