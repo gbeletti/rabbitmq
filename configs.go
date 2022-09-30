@@ -54,14 +54,16 @@ type ConfigConsume struct {
 
 // ConfigPublish is the configuration for the publisher
 type ConfigPublish struct {
-	Exchange      string
-	RoutingKey    string
-	Mandatory     bool
-	Immediate     bool
-	Headers       amqp.Table
-	ContentType   string
-	Priority      uint8
-	CorrelationID string
+	Exchange        string
+	RoutingKey      string
+	Mandatory       bool
+	Immediate       bool
+	Headers         amqp.Table
+	ContentType     string
+	ContentEncoding string
+	Priority        uint8
+	CorrelationID   string
+	MessageID       string
 }
 
 // NewConfigConsume helper function to create a new ConfigConsume with some default values
@@ -81,13 +83,15 @@ func NewConfigConsume(queueName, consumer string) ConfigConsume {
 // NewConfigPublish helper function to create a new ConfigPublish with some default values
 func NewConfigPublish(exchange, routingKey string) ConfigPublish {
 	return ConfigPublish{
-		Exchange:      exchange,
-		RoutingKey:    routingKey,
-		Mandatory:     false,
-		Immediate:     false,
-		Headers:       nil,
-		ContentType:   "",
-		Priority:      0,
-		CorrelationID: "",
+		Exchange:        exchange,
+		RoutingKey:      routingKey,
+		Mandatory:       false,
+		Immediate:       false,
+		Headers:         nil,
+		ContentType:     "",
+		ContentEncoding: "utf-8",
+		Priority:        0,
+		CorrelationID:   "",
+		MessageID:       "",
 	}
 }

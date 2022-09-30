@@ -28,14 +28,16 @@ func TestNewConfigConsume(t *testing.T) {
 func TestNewConfigPublish(t *testing.T) {
 	exchangeName, routingKey := "exchange", "routingKey"
 	expectedConfig := rabbitmq.ConfigPublish{
-		Exchange:      exchangeName,
-		RoutingKey:    routingKey,
-		Mandatory:     false,
-		Immediate:     false,
-		Headers:       nil,
-		ContentType:   "",
-		Priority:      0,
-		CorrelationID: "",
+		Exchange:        exchangeName,
+		RoutingKey:      routingKey,
+		Mandatory:       false,
+		Immediate:       false,
+		Headers:         nil,
+		ContentType:     "",
+		ContentEncoding: "utf-8",
+		Priority:        0,
+		CorrelationID:   "",
+		MessageID:       "",
 	}
 	gotConfig := rabbitmq.NewConfigPublish(exchangeName, routingKey)
 	if diff := cmp.Diff(expectedConfig, gotConfig); len(diff) > 0 {
