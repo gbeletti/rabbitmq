@@ -7,7 +7,7 @@ import (
 )
 
 // Consume starts consuming messages from a queue until the context is canceled
-func (r *rabbit) Consume(ctx context.Context, config ConfigConsume, f func(*amqp.Delivery)) (err error) {
+func (r *rabbit) Consume(ctx context.Context, config ConfigConsume, f func(context.Context, *amqp.Delivery)) (err error) {
 	if r.chConsumer == nil {
 		return amqp.ErrClosed
 	}
@@ -36,11 +36,11 @@ func (r *rabbit) Consume(ctx context.Context, config ConfigConsume, f func(*amqp
 			r.wg.Add(1)
 			if config.ExecuteConcurrent {
 				go func() {
-					f(&msg)
+					f(ctx, &msg)
 					r.wg.Done()
 				}()
 			} else {
-				f(&msg)
+				f(ctx, &msg)
 				r.wg.Done()
 			}
 		case <-ctx.Done():

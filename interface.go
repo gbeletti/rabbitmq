@@ -45,7 +45,7 @@ type ExchangeCreator interface {
 
 // Consumer is the interface for consuming messages from a queue
 type Consumer interface {
-	Consume(ctx context.Context, config ConfigConsume, f func(*amqp.Delivery)) (err error)
+	Consume(ctx context.Context, config ConfigConsume, f func(context.Context, *amqp.Delivery)) (err error)
 }
 
 // Publisher is the interface for publishing messages to an exchange

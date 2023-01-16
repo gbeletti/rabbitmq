@@ -12,7 +12,7 @@ func consumeTest(t *testing.T, ctx context.Context, rabbit rabbitmq.Consumer, qu
 	ctxCancel, cancel := context.WithCancel(ctx)
 	defer cancel()
 	gotMessage := make(chan string)
-	var receiveMessage = func(d *amqp.Delivery) {
+	var receiveMessage = func(ctx context.Context, d *amqp.Delivery) {
 		gotMessage <- string(d.Body)
 		err := d.Ack(false)
 		if err != nil {
