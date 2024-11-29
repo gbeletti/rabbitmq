@@ -45,7 +45,7 @@ func (r *rabbit) Consume(ctx context.Context, config ConfigConsume, f func(*amqp
 			}
 		case <-ctx.Done():
 			if allCanceled {
-				continue
+				return
 			}
 			err = r.chConsumer.Cancel(config.Consumer, false)
 			allCanceled = true

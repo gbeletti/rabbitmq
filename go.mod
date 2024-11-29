@@ -1,10 +1,10 @@
 module github.com/gbeletti/rabbitmq
 
-go 1.21
+go 1.22
 
 require (
 	github.com/google/go-cmp v0.6.0
-	github.com/rabbitmq/amqp091-go v1.9.0
+	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/testcontainers/testcontainers-go v0.27.0
 )
 
