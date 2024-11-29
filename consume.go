@@ -44,7 +44,7 @@ func (r *rabbit) Consume(ctx context.Context, config ConfigConsume, f func(*amqp
 				r.wg.Done()
 			}
 		case <-ctx.Done():
-			if allCanceled {
+			if allCanceled && len(msgs) == 0 {
 				return
 			}
 			err = r.chConsumer.Cancel(config.Consumer, false)
