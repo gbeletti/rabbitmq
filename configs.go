@@ -1,6 +1,8 @@
 package rabbitmq
 
 import (
+	"time"
+
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -64,6 +66,13 @@ type ConfigPublish struct {
 	Priority        uint8
 	CorrelationID   string
 	MessageID       string
+	DeliveryMode    uint8
+	ReplyTo         string
+	Expiration      string
+	Timestamp       time.Time
+	Type            string
+	UserId          string
+	AppId           string
 }
 
 // NewConfigConsume helper function to create a new ConfigConsume with some default values

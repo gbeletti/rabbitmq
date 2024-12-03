@@ -27,6 +27,13 @@ func (r *rabbit) Publish(ctx context.Context, body []byte, config ConfigPublish)
 			CorrelationId:   config.CorrelationID,
 			MessageId:       config.MessageID,
 			Body:            body,
+			DeliveryMode:    config.DeliveryMode,
+			ReplyTo:         config.ReplyTo,
+			Expiration:      config.Expiration,
+			Timestamp:       config.Timestamp,
+			Type:            config.Type,
+			UserId:          config.UserId,
+			AppId:           config.AppId,
 		},
 	)
 	return
