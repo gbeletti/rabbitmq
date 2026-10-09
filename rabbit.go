@@ -2,14 +2,20 @@ package rabbitmq
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// ErrClientClosed is returned by Connect after Close was called. Close is terminal: KeepConnectionAndSetup
-// stops reconnecting when it gets this error.
+// ErrClientClosed is returned after Close was called. Close is terminal: KeepConnectionAndSetup stops
+// reconnecting when it gets this error, and a new client must be created with NewRabbitMQ.
 var ErrClientClosed = errors.New("rabbitmq: client is closed")
+
+// errOpClosed is what operations return once the client is closed. It matches both ErrClientClosed and
+// amqp.ErrClosed, so callers that only knew amqp.ErrClosed keep working and new ones can tell "closed for
+// good" from "reconnecting", which returns amqp.ErrClosed alone.
+var errOpClosed = fmt.Errorf("%w: %w", ErrClientClosed, amqp.ErrClosed)
 
 type rabbit struct {
 	// mu guards st, closed and the in-flight counter. st is replaced as a whole on every (re)connection, so
@@ -33,7 +39,8 @@ type state struct {
 	connClose, producerClose, consumerClose chan *amqp.Error
 }
 
-// NewRabbitMQ creates the object to manage the operations to rabbitMQ
+// NewRabbitMQ creates the object to manage the operations to rabbitMQ. After Close it can't be connected
+// again: create another one.
 func NewRabbitMQ() RabbitMQ {
 	idle := make(chan struct{})
 	close(idle)
@@ -44,8 +51,8 @@ func NewRabbitMQ() RabbitMQ {
 func (r *rabbit) acquire() (st *state, release func(), err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.closed || r.st == nil {
-		return nil, nil, amqp.ErrClosed
+	if err = r.unavailable(); err != nil {
+		return nil, nil, err
 	}
 	r.track()
 	return r.st, r.untrack, nil
@@ -56,10 +63,21 @@ func (r *rabbit) acquire() (st *state, release func(), err error) {
 func (r *rabbit) current() (*state, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.closed || r.st == nil {
-		return nil, amqp.ErrClosed
+	if err := r.unavailable(); err != nil {
+		return nil, err
 	}
 	return r.st, nil
+}
+
+// unavailable must be called with r.mu held.
+func (r *rabbit) unavailable() error {
+	if r.closed {
+		return errOpClosed
+	}
+	if r.st == nil {
+		return amqp.ErrClosed
+	}
+	return nil
 }
 
 // trackHandler registers the handler of a delivery. Its consumer is already in flight, so it skips the

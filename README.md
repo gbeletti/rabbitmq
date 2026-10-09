@@ -61,7 +61,7 @@ done = rabbit.Close(ctx)
 <-done
 ```
 
-It will stop receiving new messages and wait processing all the messages received from queue and publishing message to exchange or it will timeout after a given time. Publishing is still allowed while it waits; after that the client is closed for good and `Connect` returns `ErrClientClosed`.
+It will stop receiving new messages and wait processing all the messages received from queue and publishing message to exchange or it will timeout after a given time. Publishing is still allowed while it waits; after that the client is closed for good: `Connect` returns `ErrClientClosed`, the other operations return an error that matches both `ErrClientClosed` and `amqp.ErrClosed` (`errors.Is`), and a new client must be created with `NewRabbitMQ` to connect again.
 
 ### Creating queues
 

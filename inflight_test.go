@@ -2,9 +2,12 @@ package rabbitmq
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
+
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 // Operations going from 0 to 1 while Close waits was a sync.WaitGroup misuse that panics.
@@ -46,5 +49,19 @@ func TestInflightAcquireConcurrentWithWait(t *testing.T) {
 	r.waitOrDone(ctx)
 	if ctx.Err() != nil || r.inflight != 0 {
 		t.Fatalf("expected idle with no operation in flight, got %d in flight", r.inflight)
+	}
+}
+
+func TestAcquireAfterClose(t *testing.T) {
+	r := NewRabbitMQ().(*rabbit)
+	if _, _, err := r.acquire(); !errors.Is(err, amqp.ErrClosed) || errors.Is(err, ErrClientClosed) {
+		t.Fatalf("not connected yet: expected only amqp.ErrClosed, got %v", err)
+	}
+	r.closed = true
+	if _, _, err := r.acquire(); !errors.Is(err, ErrClientClosed) || !errors.Is(err, amqp.ErrClosed) {
+		t.Fatalf("closed: expected ErrClientClosed and amqp.ErrClosed, got %v", err)
+	}
+	if _, err := r.Connect(ConfigConnection{}); !errors.Is(err, ErrClientClosed) {
+		t.Fatalf("Connect after Close: expected ErrClientClosed, got %v", err)
 	}
 }
