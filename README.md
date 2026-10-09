@@ -136,6 +136,29 @@ go func() {
 
 It is important that the context has cancel, so when it is canceled it will stop consuming messages from queue. You can share the same context used in the connection.
 
+### Publishing with confirms
+
+By default `Publish` returns as soon as the message is written to the socket: a message the broker rejects, e.g. sent to an exchange that does not exist, is lost and `Publish` still returns `nil`. Set `PublisherConfirms` in `ConfigConnection` to put the producer channel in [confirm mode](https://www.rabbitmq.com/docs/confirms#publisher-confirms):
+
+```go
+configConn := rabbitmq.ConfigConnection{
+    URI:               "amqp://guest:guest@localhost:5672",
+    PublisherConfirms: true,
+}
+```
+
+Then `Publish` waits for the broker to confirm each message. Each `Publish` takes one more round trip to the broker; concurrent publishes still share the channel and wait in parallel. The errors tell the caller what happened:
+
+- an error that does not match `rabbitmq.ErrNotConfirmed` (e.g. `amqp.ErrClosed`): the message was not sent, so retrying can't duplicate it;
+- `rabbitmq.ErrNotConfirmed`: the message was sent and the outcome is unknown. The broker nacked it, the producer channel closed before the confirm, or the context ended while waiting. It may still have been enqueued, so a retry can duplicate it and consumers must be idempotent.
+
+When the channel closed, the broker's `*amqp.Error` is in the chain, e.g. `404 NOT_FOUND`. It says why the **channel** closed, which may have been another publish running concurrently, so don't treat it as a permanent failure of this message.
+
+Two limits:
+
+- A confirm means the broker took the message, not that a queue got it. An existing exchange with no binding matching the routing key acks and drops the message, and `Mandatory` doesn't turn that into an error, because the returned message is not listened to.
+- The context bounds the wait for the confirm, not the write to the socket. When the broker stops reading from publishers (memory or disk alarm) and the socket buffer fills up, `Publish` blocks past the context, as it does without confirms.
+
 ## Reference
 
 This library uses [rabbitmq/amqp091-go](https://github.com/rabbitmq/amqp091-go). To better understand the options for the queues and exchanges I suggest their documentation.
