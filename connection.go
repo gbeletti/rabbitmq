@@ -26,9 +26,9 @@ var reconnectBackoffMin, reconnectBackoffMax = time.Second, 30 * time.Second
 // connection going down (e.g. publishing to an exchange that does not exist), and in that case the whole
 // connection is torn down so the caller reconnects from scratch.
 func (r *rabbit) Connect(config ConfigConnection) (notify chan *amqp.Error, err error) {
-	r.mu.RLock()
+	r.mu.Lock()
 	closed := r.closed
-	r.mu.RUnlock()
+	r.mu.Unlock()
 	if closed {
 		return nil, ErrClientClosed
 	}
@@ -141,13 +141,11 @@ func (r *rabbit) Close(ctx context.Context) (done chan struct{}) {
 }
 
 func (r *rabbit) waitOrDone(ctx context.Context) {
-	doneWaiting := make(chan struct{})
-	go func() {
-		r.wg.Wait()
-		close(doneWaiting)
-	}()
+	r.mu.Lock()
+	idle := r.idle
+	r.mu.Unlock()
 	select { // either waits for the messages to process or timeout from context
-	case <-doneWaiting:
+	case <-idle:
 	case <-ctx.Done():
 	}
 }

@@ -35,15 +35,15 @@ func (r *rabbit) Consume(ctx context.Context, config ConfigConsume, f func(*amqp
 			if !ok {
 				return
 			}
-			r.wg.Add(1)
+			done := r.trackHandler()
 			if config.ExecuteConcurrent {
 				go func() {
-					defer r.wg.Done()
+					defer done()
 					f(&msg)
 				}()
 			} else {
 				f(&msg)
-				r.wg.Done()
+				done()
 			}
 		case <-ctx.Done():
 			// Deliveries already prefetched but not handed to f stay unacked and the broker requeues them

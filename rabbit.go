@@ -12,12 +12,16 @@ import (
 var ErrClientClosed = errors.New("rabbitmq: client is closed")
 
 type rabbit struct {
-	// mu guards st and closed. st is replaced as a whole on every (re)connection, so an operation that
-	// grabbed it keeps using a consistent connection/channels set even if a reconnection happens meanwhile.
-	mu     sync.RWMutex
+	// mu guards st, closed and the in-flight counter. st is replaced as a whole on every (re)connection, so
+	// an operation that grabbed it keeps using a consistent connection/channels set.
+	mu     sync.Mutex
 	st     *state
 	closed bool
-	wg     *sync.WaitGroup
+
+	// inflight counts consumers, handlers and publishes running; idle is closed whenever it is zero. Unlike a
+	// sync.WaitGroup it may go from 0 to 1 while Close waits, which happens when handlers being drained publish.
+	inflight int
+	idle     chan struct{}
 }
 
 // state is everything that belongs to one connection. It is never mutated after Connect publishes it.
@@ -31,31 +35,55 @@ type state struct {
 
 // NewRabbitMQ creates the object to manage the operations to rabbitMQ
 func NewRabbitMQ() RabbitMQ {
-	return &rabbit{
-		wg: &sync.WaitGroup{},
-	}
+	idle := make(chan struct{})
+	close(idle)
+	return &rabbit{idle: idle}
 }
 
-// acquire returns the current state and registers one operation on the wait group, so Close waits for it.
-// The Add happens under the read lock and Close flips closed under the write lock before its last Wait, so
-// no Add can race with that Wait.
+// acquire returns the current state and registers one in-flight operation, so Close waits for it.
 func (r *rabbit) acquire() (st *state, release func(), err error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.closed || r.st == nil {
 		return nil, nil, amqp.ErrClosed
 	}
-	r.wg.Add(1)
-	return r.st, r.wg.Done, nil
+	r.track()
+	return r.st, r.untrack, nil
 }
 
 // current returns the current state without registering an operation. Used by the declarations, which are
 // quick RPCs that Close does not need to wait for.
 func (r *rabbit) current() (*state, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.closed || r.st == nil {
 		return nil, amqp.ErrClosed
 	}
 	return r.st, nil
+}
+
+// trackHandler registers the handler of a delivery. Its consumer is already in flight, so it skips the
+// closed check that acquire does.
+func (r *rabbit) trackHandler() (release func()) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.track()
+	return r.untrack
+}
+
+// track must be called with r.mu held.
+func (r *rabbit) track() {
+	if r.inflight == 0 {
+		r.idle = make(chan struct{})
+	}
+	r.inflight++
+}
+
+func (r *rabbit) untrack() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.inflight--
+	if r.inflight == 0 {
+		close(r.idle)
+	}
 }
