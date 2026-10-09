@@ -42,7 +42,9 @@ type ConfigExchange struct {
 	Args       amqp.Table
 }
 
-// ConfigConsume is the configuration for the consumer
+// ConfigConsume is the configuration for the consumer. ExecuteConcurrent runs each delivery in its own
+// goroutine; it requires ConfigConnection.PrefetchCount > 0 and AutoAck off, so the prefetch caps the
+// goroutines running, otherwise Consume returns ErrUnboundedConcurrency.
 type ConfigConsume struct {
 	QueueName         string
 	Consumer          string

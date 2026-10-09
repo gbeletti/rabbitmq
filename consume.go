@@ -13,12 +13,16 @@ import (
 // Consume starts consuming messages from a queue until the context is canceled. It returns nil when the
 // context is canceled or when the channel is closed (e.g. the connection dropped); in the latter case
 // KeepConnectionAndSetup reconnects and runs the setup again, which is where consumers are restarted.
+// With ExecuteConcurrent it returns ErrUnboundedConcurrency unless the prefetch bounds the handlers running.
 func (r *rabbit) Consume(ctx context.Context, config ConfigConsume, f func(*amqp.Delivery)) (err error) {
 	st, release, err := r.acquire()
 	if err != nil {
 		return
 	}
 	defer release()
+	if config.ExecuteConcurrent && (config.AutoAck || st.prefetchCount <= 0) {
+		return ErrUnboundedConcurrency
+	}
 	if config.Consumer == "" {
 		// The tag amqp would generate is not returned, and Cancel needs it to stop this consumer.
 		config.Consumer = uniqueConsumerTag()

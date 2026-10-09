@@ -68,7 +68,7 @@ func dial(config ConfigConnection) (*state, error) {
 	if err != nil {
 		return nil, err
 	}
-	st := &state{conn: conn}
+	st := &state{conn: conn, prefetchCount: config.PrefetchCount}
 	st.connClose = conn.NotifyClose(make(chan *amqp.Error, 1))
 	st.chProducer, err = conn.Channel()
 	if err != nil {
@@ -152,6 +152,7 @@ func (r *rabbit) reopenProducer(st *state) (next *state, ok bool) {
 		conn:          st.conn,
 		chConsumer:    st.chConsumer,
 		chProducer:    ch,
+		prefetchCount: st.prefetchCount,
 		connClose:     st.connClose,
 		consumerClose: st.consumerClose,
 		producerClose: ch.NotifyClose(make(chan *amqp.Error, 1)),

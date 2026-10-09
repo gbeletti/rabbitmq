@@ -101,7 +101,9 @@ config := rabbitmq.ConfigConsume{
 }
 ```
 
-The option `ExecuteConcurrent` defines if the message received should run in a goroutine or not.
+The option `ExecuteConcurrent` defines if the message received should run in a goroutine or not. It requires
+`PrefetchCount > 0` in the connection and `AutoAck` off: the prefetch is what limits the goroutines running,
+so without it `Consume` returns `ErrUnboundedConcurrency` instead of spawning one goroutine per message.
 
 Then create the function to be executed upon getting a new message.
 
