@@ -130,6 +130,19 @@ go func() {
 
 It is important that the context has cancel, so when it is canceled it will stop consuming messages from queue. You can share the same context used in the connection.
 
+### Publishing with confirms
+
+By default `Publish` returns as soon as the message is written to the socket: a message the broker rejects, e.g. sent to an exchange that does not exist, is lost and `Publish` still returns `nil`. Set `PublisherConfirms` in `ConfigConnection` to put the producer channel in [confirm mode](https://www.rabbitmq.com/docs/confirms#publisher-confirms):
+
+```go
+configConn := rabbitmq.ConfigConnection{
+    URI:               "amqp://guest:guest@localhost:5672",
+    PublisherConfirms: true,
+}
+```
+
+Then `Publish` waits for the broker to confirm each message, honoring the context, and returns an error matching `rabbitmq.ErrNotConfirmed` when the broker nacks it, closes the producer channel before confirming it (the broker's `*amqp.Error`, e.g. `404 NOT_FOUND`, is in the chain) or the context ends first. Each `Publish` takes one more round trip to the broker; concurrent publishes still share the channel and wait in parallel.
+
 ## Reference
 
 This library uses [rabbitmq/amqp091-go](https://github.com/rabbitmq/amqp091-go). To better understand the options for the queues and exchanges I suggest their documentation.
