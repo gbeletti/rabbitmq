@@ -20,11 +20,12 @@ var reconnectBackoffMin, reconnectBackoffMax = time.Second, 30 * time.Second
 // It can also notify the connection is open to other goroutines if the function NotifyOpenConnection
 // is called before connecting.
 //
-// The returned channel fires when the connection OR any of its two channels closes: it receives the
+// The returned channel fires when the connection or its consumer channel closes: it receives the
 // *amqp.Error and is then closed when the close came from the broker, and it is only closed (no error) when
-// the close was graceful, i.e. Close was called. A channel can be closed by the broker without the
-// connection going down (e.g. publishing to an exchange that does not exist), and in that case the whole
-// connection is torn down so the caller reconnects from scratch.
+// the close was graceful, i.e. Close was called. When the broker closes the consumer channel with the
+// connection still up (e.g. an invalid ack), the connection is torn down so the caller reconnects and
+// restarts the consumers. When it closes the producer channel (e.g. publishing to an exchange that does not
+// exist), only that channel is reopened and nothing is reported, so consumers are not disturbed.
 func (r *rabbit) Connect(config ConfigConnection) (notify chan *amqp.Error, err error) {
 	r.mu.Lock()
 	closed := r.closed
@@ -88,32 +89,72 @@ func dial(config ConfigConnection) (*state, error) {
 	return st, nil
 }
 
-// watch waits for the first close among the connection and its channels and reports it on notify.
+// watch reports on notify the first close of the connection or the consumer channel; a producer channel
+// closed by the broker is reopened in place.
 func (r *rabbit) watch(st *state, notify chan *amqp.Error) {
 	defer close(notify)
-	var amqpErr *amqp.Error
-	select {
-	case amqpErr = <-st.connClose:
-	case amqpErr = <-st.producerClose:
-	case amqpErr = <-st.consumerClose:
-	}
+	for {
+		var amqpErr *amqp.Error
+		producer := false
+		select {
+		case amqpErr = <-st.connClose:
+		case amqpErr = <-st.consumerClose:
+		case amqpErr = <-st.producerClose:
+			producer = true
+		}
 
+		if producer && amqpErr != nil && !st.conn.IsClosed() {
+			if next, ok := r.reopenProducer(st); ok {
+				log.Printf("rabbitmq producer channel closed by the broker, reopened it: [%s]\n", amqpErr)
+				st = next
+				continue
+			}
+		}
+
+		r.mu.Lock()
+		current := r.st == st
+		if current {
+			r.st = nil
+		}
+		closed := r.closed
+		r.mu.Unlock()
+		if closed || !current {
+			return // graceful: Close or a newer Connect took this state out and closes it
+		}
+		if amqpErr == nil {
+			// Closed without error but not by us, e.g. it died before NotifyClose was registered.
+			amqpErr = amqp.ErrClosed
+		}
+		st.close()
+		notify <- amqpErr
+		return
+	}
+}
+
+// reopenProducer opens a new producer channel on the same connection and swaps in a state that keeps the
+// consumer channel and its consumers. ok is false when the channel can't be opened or the state is no
+// longer current, and then the caller handles it as any other close.
+func (r *rabbit) reopenProducer(st *state) (next *state, ok bool) {
+	ch, err := st.conn.Channel()
+	if err != nil {
+		return nil, false
+	}
+	next = &state{
+		conn:          st.conn,
+		chConsumer:    st.chConsumer,
+		chProducer:    ch,
+		connClose:     st.connClose,
+		consumerClose: st.consumerClose,
+		producerClose: ch.NotifyClose(make(chan *amqp.Error, 1)),
+	}
 	r.mu.Lock()
-	current := r.st == st
-	if current {
-		r.st = nil
+	defer r.mu.Unlock()
+	if r.closed || r.st != st {
+		_ = ch.Close()
+		return nil, false
 	}
-	closed := r.closed
-	r.mu.Unlock()
-	if closed || !current {
-		return // graceful: Close or a newer Connect took this state out and closes it
-	}
-	if amqpErr == nil {
-		// Closed without error but not by us, e.g. it died before NotifyClose was registered.
-		amqpErr = amqp.ErrClosed
-	}
-	st.close()
-	notify <- amqpErr
+	r.st = next
+	return next, true
 }
 
 // Close closes the rabbitMQ connection. It waits the in-flight operations (consumers and publishes) to

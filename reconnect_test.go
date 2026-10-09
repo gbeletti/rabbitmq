@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gbeletti/rabbitmq"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 // keepConnection starts KeepConnectionAndSetup with a setup that declares queue and signals every run.
@@ -30,21 +31,43 @@ func waitSignal(t *testing.T, ch <-chan struct{}, timeout time.Duration, what st
 	}
 }
 
-func TestReconnectAfterChannelClosedByBroker(t *testing.T) {
+func TestProducerChannelReopenedWithoutReconnect(t *testing.T) {
 	uri, _ := setupRabbitContainer(t)
 	rabbit := rabbitmq.NewRabbitMQ()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	queue := "channelclosed"
+	queue := "producerclosed"
 	setups, exited := keepConnection(t, ctx, rabbit, uri, queue)
 	waitSignal(t, setups, 20*time.Second, "first setup")
+
+	// A consumer started before the producer channel dies must keep receiving.
+	received := make(chan string, 10)
+	consumeCtx, stopConsume := context.WithCancel(ctx)
+	consumeDone := make(chan error, 1)
+	go func() {
+		consumeDone <- rabbit.Consume(consumeCtx, rabbitmq.NewConfigConsume(queue, "longlived"), func(d *amqp.Delivery) {
+			received <- string(d.Body)
+			_ = d.Ack(false)
+		})
+	}()
 
 	// The broker closes the producer channel with 404 NOT_FOUND, but the connection stays up.
 	if err := rabbit.Publish(ctx, []byte("lost"), rabbitmq.NewConfigPublish("does-not-exist", queue)); err != nil {
 		t.Fatalf("publish to missing exchange should only fail asynchronously, got: %s", err)
 	}
-	waitSignal(t, setups, 20*time.Second, "setup after the channel was closed")
-	publishAndConsume(t, ctx, rabbit, "", queue, "after channel close")
+	publishUntilReceived(t, ctx, rabbit, queue, received, "after producer close")
+
+	select {
+	case <-setups:
+		t.Error("the connection was torn down: setup ran again after a producer channel close")
+	case err := <-consumeDone:
+		t.Errorf("consumer stopped after a producer channel close: %v", err)
+	default:
+	}
+	stopConsume()
+	if err := <-consumeDone; err != nil {
+		t.Errorf("error consuming from queue: %s", err)
+	}
 
 	// Close without canceling the context: a graceful close must stop the reconnection loop.
 	closeConnection(t, rabbit)
@@ -54,6 +77,60 @@ func TestReconnectAfterChannelClosedByBroker(t *testing.T) {
 		t.Error("reconnected after Close")
 	default:
 	}
+}
+
+// publishUntilReceived publishes msg until it shows up in received, since the reopened producer channel is
+// swapped in asynchronously and a publish racing the broker's channel.close is lost.
+func publishUntilReceived(t *testing.T, ctx context.Context, rabbit rabbitmq.Publisher, queue string, received <-chan string, msg string) {
+	t.Helper()
+	deadline := time.After(15 * time.Second)
+	for {
+		_ = rabbit.Publish(ctx, []byte(msg), rabbitmq.NewConfigPublish("", queue))
+		select {
+		case got := <-received:
+			if got != msg {
+				t.Fatalf("expected message %q, got %q", msg, got)
+			}
+			return
+		case <-time.After(500 * time.Millisecond):
+		case <-deadline:
+			t.Fatalf("message %q never reached the consumer", msg)
+		}
+	}
+}
+
+func TestReconnectAfterConsumerChannelClosedByBroker(t *testing.T) {
+	uri, _ := setupRabbitContainer(t)
+	rabbit := rabbitmq.NewRabbitMQ()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	queue := "consumerclosed"
+	setups, exited := keepConnection(t, ctx, rabbit, uri, queue)
+	waitSignal(t, setups, 20*time.Second, "first setup")
+
+	// Acking the same delivery twice makes the broker close the consumer channel with 406 PRECONDITION_FAILED.
+	consumeDone := make(chan error, 1)
+	go func() {
+		consumeDone <- rabbit.Consume(ctx, rabbitmq.NewConfigConsume(queue, "doubleack"), func(d *amqp.Delivery) {
+			_ = d.Ack(false)
+			_ = d.Ack(false)
+		})
+	}()
+	publishTest(t, ctx, rabbit, "", queue, "double ack")
+	select {
+	case err := <-consumeDone:
+		if err != nil {
+			t.Errorf("Consume should return nil when its channel closes, got: %s", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Consume did not return after its channel was closed")
+	}
+	waitSignal(t, setups, 20*time.Second, "setup after the consumer channel was closed")
+	publishAndConsume(t, ctx, rabbit, "", queue, "after consumer channel close")
+
+	cancel()
+	waitSignal(t, exited, 5*time.Second, "KeepConnectionAndSetup to exit after cancel")
+	closeConnection(t, rabbit)
 }
 
 func TestReconnectAfterConnectionDropped(t *testing.T) {
