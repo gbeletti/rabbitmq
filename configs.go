@@ -10,6 +10,10 @@ import (
 type ConfigConnection struct {
 	URI           string
 	PrefetchCount int
+	// PublisherConfirms puts the producer channel in confirm mode: Publish waits for the broker to confirm
+	// the message and fails when it doesn't (see ErrNotConfirmed). Off, Publish returns once the message is
+	// written to the socket, and a publish the broker rejects (e.g. missing exchange) is lost silently.
+	PublisherConfirms bool
 }
 
 // ConfigQueue is the configuration for the queue

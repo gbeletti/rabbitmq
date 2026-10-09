@@ -37,6 +37,26 @@ type state struct {
 	chProducer *amqp.Channel
 
 	connClose, producerClose, consumerClose chan *amqp.Error
+
+	// confirms is ConfigConnection.PublisherConfirms. producerReason is only set when it is on.
+	confirms       bool
+	producerReason *closeReason
+}
+
+// closeReason records why a channel closed, so Publish can tell the caller what the broker said.
+type closeReason struct {
+	done chan struct{}
+	err  *amqp.Error // nil on a graceful close; read only after done is closed
+}
+
+func watchClose(ch *amqp.Channel) *closeReason {
+	reason := &closeReason{done: make(chan struct{})}
+	notify := ch.NotifyClose(make(chan *amqp.Error, 1))
+	go func() {
+		reason.err = <-notify
+		close(reason.done)
+	}()
+	return reason
 }
 
 // NewRabbitMQ creates the object to manage the operations to rabbitMQ. After Close it can't be connected

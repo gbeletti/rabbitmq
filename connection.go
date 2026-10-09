@@ -25,7 +25,8 @@ var reconnectBackoffMin, reconnectBackoffMax = time.Second, 30 * time.Second
 // the close was graceful, i.e. Close was called. When the broker closes the consumer channel with the
 // connection still up (e.g. an invalid ack), the connection is torn down so the caller reconnects and
 // restarts the consumers. When it closes the producer channel (e.g. publishing to an exchange that does not
-// exist), only that channel is reopened and nothing is reported, so consumers are not disturbed.
+// exist), only that channel is reopened and nothing is reported here, so consumers are not disturbed; with
+// ConfigConnection.PublisherConfirms on, the Publish that caused it gets the error instead.
 //
 // Calling Connect again replaces and closes the previous connection, whose channel then receives
 // ErrSuperseded. Do not run Connect or KeepConnectionAndSetup concurrently on the same client.
@@ -68,14 +69,12 @@ func dial(config ConfigConnection) (*state, error) {
 	if err != nil {
 		return nil, err
 	}
-	st := &state{conn: conn}
+	st := &state{conn: conn, confirms: config.PublisherConfirms}
 	st.connClose = conn.NotifyClose(make(chan *amqp.Error, 1))
-	st.chProducer, err = conn.Channel()
-	if err != nil {
+	if err = st.openProducer(); err != nil {
 		st.close()
 		return nil, err
 	}
-	st.producerClose = st.chProducer.NotifyClose(make(chan *amqp.Error, 1))
 	st.chConsumer, err = conn.Channel()
 	if err != nil {
 		st.close()
@@ -90,6 +89,26 @@ func dial(config ConfigConnection) (*state, error) {
 		}
 	}
 	return st, nil
+}
+
+// openProducer opens the producer channel on st.conn, in confirm mode when st.confirms is set. On error
+// nothing is left open and st.chProducer stays nil.
+func (st *state) openProducer() error {
+	ch, err := st.conn.Channel()
+	if err != nil {
+		return err
+	}
+	producerClose := ch.NotifyClose(make(chan *amqp.Error, 1))
+	var reason *closeReason
+	if st.confirms {
+		reason = watchClose(ch)
+		if err = ch.Confirm(false); err != nil {
+			_ = ch.Close()
+			return err
+		}
+	}
+	st.chProducer, st.producerClose, st.producerReason = ch, producerClose, reason
+	return nil
 }
 
 // ErrSuperseded is sent on the channel returned by Connect when a later Connect replaced that connection.
@@ -144,22 +163,20 @@ func (r *rabbit) watch(st *state, notify chan *amqp.Error) {
 // consumer channel and its consumers. ok is false when the channel can't be opened or the state is no
 // longer current, and then the caller handles it as any other close.
 func (r *rabbit) reopenProducer(st *state) (next *state, ok bool) {
-	ch, err := st.conn.Channel()
-	if err != nil {
-		return nil, false
-	}
 	next = &state{
 		conn:          st.conn,
 		chConsumer:    st.chConsumer,
-		chProducer:    ch,
 		connClose:     st.connClose,
 		consumerClose: st.consumerClose,
-		producerClose: ch.NotifyClose(make(chan *amqp.Error, 1)),
+		confirms:      st.confirms,
+	}
+	if err := next.openProducer(); err != nil {
+		return nil, false
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed || r.st != st {
-		_ = ch.Close()
+		_ = next.chProducer.Close()
 		return nil, false
 	}
 	r.st = next
