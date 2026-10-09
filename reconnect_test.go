@@ -67,6 +67,9 @@ func TestProducerChannelReopenedWithoutReconnect(t *testing.T) {
 		t.Errorf("concurrent consumer started after the producer channel reopened failed: %s", err)
 	}
 
+	// The swapped-in state must keep the declarations channel and its lock, or this panics.
+	createQueueTest(t, rabbit, "declaredafterreopen")
+
 	select {
 	case <-setups:
 		t.Error("the connection was torn down: setup ran again after a producer channel close")
