@@ -19,16 +19,18 @@ var reconnectBackoffMin, reconnectBackoffMax = time.Second, 30 * time.Second
 // closeTimeout bounds how long closing a connection waits for the broker's reply.
 const closeTimeout = 5 * time.Second
 
-// Connect connects to the rabbitMQ server and also creates the channels to produce and consume messages.
-// It can also notify the connection is open to other goroutines if the function NotifyOpenConnection
-// is called before connecting.
+// Connect connects to the rabbitMQ server and also creates the channel to produce messages. Each Consume call
+// opens a channel of its own, and the declarations share another one. It can also notify the connection is
+// open to other goroutines if the function NotifyOpenConnection is called before connecting.
 //
-// The returned channel fires when the connection or its consumer channel closes: it receives the
-// *amqp.Error and is then closed when the close came from the broker, and it is only closed (no error) when
-// the close was graceful, i.e. Close was called. When the broker closes the consumer channel with the
-// connection still up (e.g. an invalid ack), the connection is torn down so the caller reconnects and
-// restarts the consumers. When it closes the producer channel (e.g. publishing to an exchange that does not
-// exist), only that channel is reopened and nothing is reported, so consumers are not disturbed.
+// The returned channel fires when the connection closes: it receives the *amqp.Error and is then closed when
+// the close came from the broker, and it is only closed (no error) when the close was graceful, i.e. Close
+// was called. A channel the broker closes with the connection still up is not reported, and is reopened
+// without disturbing the others: a consumer's by its Consume (e.g. after an invalid ack), the declarations'
+// by the next declaration, and the producer's right away (e.g. after publishing to an exchange that does not
+// exist; with ConfigConnection.PublisherConfirms on, the Publish that caused it gets the error). Only a
+// consumer that can't reopen its channel tears the connection down, so the caller reconnects and runs the
+// setup again; its error is the one reported.
 //
 // Calling Connect again replaces and closes the previous connection, whose channel then receives
 // ErrSuperseded. Do not run Connect or KeepConnectionAndSetup concurrently on the same client.
@@ -71,35 +73,46 @@ func dial(config ConfigConnection) (*state, error) {
 	if err != nil {
 		return nil, err
 	}
-	st := &state{conn: conn, consumerRPC: new(sync.Mutex)}
+	st := &state{
+		conn:          conn,
+		declarer:      &declarer{conn: conn},
+		prefetchCount: config.PrefetchCount,
+		confirms:      config.PublisherConfirms,
+		failed:        make(chan *amqp.Error, 1),
+	}
 	st.connClose = conn.NotifyClose(make(chan *amqp.Error, 1))
-	st.chProducer, err = conn.Channel()
-	if err != nil {
+	if err = st.openProducer(); err != nil {
 		st.close()
 		return nil, err
-	}
-	st.producerClose = st.chProducer.NotifyClose(make(chan *amqp.Error, 1))
-	st.chConsumer, err = conn.Channel()
-	if err != nil {
-		st.close()
-		return nil, err
-	}
-	st.consumerClose = st.chConsumer.NotifyClose(make(chan *amqp.Error, 1))
-	if config.PrefetchCount > 0 {
-		err = st.chConsumer.Qos(config.PrefetchCount, 0, false)
-		if err != nil {
-			st.close()
-			return nil, err
-		}
 	}
 	return st, nil
+}
+
+// openProducer opens the producer channel on st.conn, in confirm mode when st.confirms is set, and sets
+// every producer field of st. On error nothing is left open and st is not changed.
+func (st *state) openProducer() error {
+	ch, err := st.conn.Channel()
+	if err != nil {
+		return err
+	}
+	producerClose := ch.NotifyClose(make(chan *amqp.Error, 1))
+	var reason *closeReason
+	if st.confirms {
+		reason = watchClose(ch)
+		if err = ch.Confirm(false); err != nil {
+			_ = ch.Close()
+			return err
+		}
+	}
+	st.chProducer, st.producerClose, st.producerReason = ch, producerClose, reason
+	return nil
 }
 
 // ErrSuperseded is sent on the channel returned by Connect when a later Connect replaced that connection.
 var ErrSuperseded = &amqp.Error{Code: amqp.ConnectionForced, Reason: "rabbitmq: connection superseded by a newer Connect"}
 
-// watch reports on notify the first close of the connection or the consumer channel; a producer channel
-// closed by the broker is reopened in place.
+// watch reports on notify the first close of the connection or a consumer's failure to reopen its channel; a
+// producer channel closed by the broker is reopened in place.
 func (r *rabbit) watch(st *state, notify chan *amqp.Error) {
 	defer close(notify)
 	for {
@@ -107,7 +120,7 @@ func (r *rabbit) watch(st *state, notify chan *amqp.Error) {
 		producer := false
 		select {
 		case amqpErr = <-st.connClose:
-		case amqpErr = <-st.consumerClose:
+		case amqpErr = <-st.failed:
 		case amqpErr = <-st.producerClose:
 			producer = true
 		}
@@ -144,21 +157,19 @@ func (r *rabbit) watch(st *state, notify chan *amqp.Error) {
 }
 
 // reopenProducer opens a new producer channel on the same connection and swaps in a state that keeps the
-// consumer channel and its consumers. ok is false when the channel can't be opened or the state is no
+// other channels and the consumers on them. ok is false when the channel can't be opened or the state is no
 // longer current, and then the caller handles it as any other close.
 func (r *rabbit) reopenProducer(st *state) (next *state, ok bool) {
-	ch, err := st.conn.Channel()
-	if err != nil {
+	// A copy carries every field that is not the producer channel's, which openProducer then replaces.
+	copied := *st
+	next = &copied
+	if err := next.openProducer(); err != nil {
 		return nil, false
 	}
-	copied := *st // a copy, so every other field of the connection carries over
-	copied.chProducer = ch
-	copied.producerClose = ch.NotifyClose(make(chan *amqp.Error, 1))
-	next = &copied
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed || r.st != st {
-		_ = ch.Close()
+		_ = next.chProducer.Close()
 		return nil, false
 	}
 	r.st = next

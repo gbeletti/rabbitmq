@@ -1,6 +1,7 @@
 package rabbitmq
 
 import (
+	"fmt"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -8,8 +9,17 @@ import (
 
 // ConfigConnection is the configuration for the connection
 type ConfigConnection struct {
-	URI           string
+	URI string
+	// PrefetchCount is the Qos of the channel of each Consume call: how many deliveries the broker sends to
+	// that consumer without an ack. 0 means no limit.
 	PrefetchCount int
+	// PublisherConfirms puts the producer channel in confirm mode: Publish waits for the broker to confirm
+	// the message and fails when it doesn't (see ErrNotConfirmed). Off, Publish returns once the message is
+	// written to the socket, and a publish the broker rejects (e.g. missing exchange) is lost silently.
+	// A confirm means the broker took the message, not that a queue got it: an existing exchange with no
+	// binding matching the routing key acks and drops it, and ConfigPublish.Mandatory doesn't turn that into
+	// an error because the returned message is not listened to.
+	PublisherConfirms bool
 }
 
 // ConfigQueue is the configuration for the queue
@@ -42,7 +52,14 @@ type ConfigExchange struct {
 	Args       amqp.Table
 }
 
-// ConfigConsume is the configuration for the consumer
+// ConfigConsume is the configuration for the consumer.
+//
+// ExecuteConcurrent runs each delivery in its own goroutine, at most MaxConcurrent at once. When MaxConcurrent
+// is not set (0 or less) the limit is ConfigConnection.PrefetchCount, which requires AutoAck off since the broker
+// ignores the prefetch for it; without either bound Consume returns ErrUnboundedConcurrency. The limit is per
+// Consume call: it counts the handlers still running on a channel that call reopened, but after a reconnection
+// those from the previous call are not counted. With AutoAck, MaxConcurrent bounds the handlers but not the
+// deliveries waiting for one, which amqp buffers.
 type ConfigConsume struct {
 	QueueName         string
 	Consumer          string
@@ -52,6 +69,29 @@ type ConfigConsume struct {
 	NoWait            bool
 	Args              amqp.Table
 	ExecuteConcurrent bool
+	MaxConcurrent     int
+}
+
+// Validate returns the error Consume would return for this configuration on a connection made with conn, so a
+// consumer can fail at boot instead of in the setup that runs again after every reconnection.
+func (c ConfigConsume) Validate(conn ConfigConnection) error {
+	_, err := c.concurrencyLimit(conn.PrefetchCount)
+	return err
+}
+
+// concurrencyLimit is how many handlers run at once for a consumer on a channel with this prefetch.
+func (c ConfigConsume) concurrencyLimit(prefetch int) (int, error) {
+	switch {
+	case !c.ExecuteConcurrent:
+		return 1, nil
+	case c.MaxConcurrent > 0:
+		return c.MaxConcurrent, nil
+	case c.AutoAck:
+		return 0, fmt.Errorf("%w: AutoAck is on and MaxConcurrent is not set (queue %q)", ErrUnboundedConcurrency, c.QueueName)
+	case prefetch <= 0:
+		return 0, fmt.Errorf("%w: connection PrefetchCount is %d and MaxConcurrent is not set (queue %q)", ErrUnboundedConcurrency, prefetch, c.QueueName)
+	}
+	return prefetch, nil
 }
 
 // ConfigPublish is the configuration for the publisher
