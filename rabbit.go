@@ -38,9 +38,11 @@ type state struct {
 
 	connClose, producerClose, consumerClose chan *amqp.Error
 
-	// confirms is ConfigConnection.PublisherConfirms. producerReason is only set when it is on.
-	confirms       bool
-	producerReason *closeReason
+	// confirms is ConfigConnection.PublisherConfirms. producerReason and producerReturns are only set when
+	// it is on.
+	confirms        bool
+	producerReason  *closeReason
+	producerReturns *returnTracker
 }
 
 // closeReason records why a channel closed, so Publish can tell the caller what the broker said.
