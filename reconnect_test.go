@@ -179,3 +179,25 @@ func TestKeepConnectionStopsOnCancelWithBrokerDown(t *testing.T) {
 	waitSignal(t, exited, 2*time.Second, "KeepConnectionAndSetup to exit after cancel")
 	closeConnection(t, rabbit)
 }
+
+func TestConnectSupersedesPreviousConnection(t *testing.T) {
+	uri, _ := setupRabbitContainer(t)
+	rabbit := rabbitmq.NewRabbitMQ()
+	config := rabbitmq.ConfigConnection{URI: uri}
+	first, err := rabbit.Connect(config)
+	if err != nil {
+		t.Fatalf("failed to connect to rabbitmq: %s", err)
+	}
+	if _, err = rabbit.Connect(config); err != nil {
+		t.Fatalf("failed to connect to rabbitmq again: %s", err)
+	}
+	defer closeConnection(t, rabbit)
+	select {
+	case amqpErr := <-first:
+		if amqpErr != rabbitmq.ErrSuperseded {
+			t.Errorf("expected ErrSuperseded on the replaced connection, got %v", amqpErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the replaced connection was not reported")
+	}
+}

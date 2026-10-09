@@ -26,6 +26,9 @@ var reconnectBackoffMin, reconnectBackoffMax = time.Second, 30 * time.Second
 // connection still up (e.g. an invalid ack), the connection is torn down so the caller reconnects and
 // restarts the consumers. When it closes the producer channel (e.g. publishing to an exchange that does not
 // exist), only that channel is reopened and nothing is reported, so consumers are not disturbed.
+//
+// Calling Connect again replaces and closes the previous connection, whose channel then receives
+// ErrSuperseded. Do not run Connect or KeepConnectionAndSetup concurrently on the same client.
 func (r *rabbit) Connect(config ConfigConnection) (notify chan *amqp.Error, err error) {
 	r.mu.Lock()
 	closed := r.closed
@@ -89,6 +92,9 @@ func dial(config ConfigConnection) (*state, error) {
 	return st, nil
 }
 
+// ErrSuperseded is sent on the channel returned by Connect when a later Connect replaced that connection.
+var ErrSuperseded = &amqp.Error{Code: amqp.ConnectionForced, Reason: "rabbitmq: connection superseded by a newer Connect"}
+
 // watch reports on notify the first close of the connection or the consumer channel; a producer channel
 // closed by the broker is reopened in place.
 func (r *rabbit) watch(st *state, notify chan *amqp.Error) {
@@ -118,10 +124,13 @@ func (r *rabbit) watch(st *state, notify chan *amqp.Error) {
 		}
 		closed := r.closed
 		r.mu.Unlock()
-		if closed || !current {
-			return // graceful: Close or a newer Connect took this state out and closes it
-		}
-		if amqpErr == nil {
+		switch {
+		case closed:
+			return // graceful: Close took this state out and closes it
+		case !current:
+			notify <- ErrSuperseded // a newer Connect took this state out and closes it
+			return
+		case amqpErr == nil:
 			// Closed without error but not by us, e.g. it died before NotifyClose was registered.
 			amqpErr = amqp.ErrClosed
 		}
@@ -192,7 +201,8 @@ func (r *rabbit) waitOrDone(ctx context.Context) {
 }
 
 // KeepConnectionAndSetup starts a goroutine to keep the connection open and everytime the connection is open, it will call the setupRabbit function. It is important to pass a context with cancel so the goroutine can be closed when the context is done. Otherwise it will run until the program ends or Close is called.
-// The returned channel is closed when the goroutine exits.
+// The returned channel is closed when the goroutine exits. Run only one per client and don't call Connect on
+// that client by hand: either one replaces the other's connection, and this loop then stops.
 func KeepConnectionAndSetup(ctx context.Context, conn Connector, config ConfigConnection, setupRabbit RabbitSetup) <-chan struct{} {
 	exited := make(chan struct{})
 	go func() {
@@ -221,6 +231,10 @@ func KeepConnectionAndSetup(ctx context.Context, conn Connector, config ConfigCo
 			case amqpErr := <-notifyClose:
 				if amqpErr == nil {
 					return // closed gracefully by Close
+				}
+				if amqpErr == ErrSuperseded {
+					log.Println("rabbitmq connection replaced by another Connect, stopping this reconnection loop")
+					return
 				}
 				// Only a connection that held up resets the backoff: a setup or publish that keeps getting the
 				// channel closed right after connecting would otherwise reconnect in a tight loop.
