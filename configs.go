@@ -14,8 +14,8 @@ type ConfigConnection struct {
 	// the message and fails when it doesn't (see ErrNotConfirmed). Off, Publish returns once the message is
 	// written to the socket, and a publish the broker rejects (e.g. missing exchange) is lost silently.
 	// A confirm means the broker took the message, not that a queue got it: an existing exchange with no
-	// binding matching the routing key acks and drops it, and ConfigPublish.Mandatory doesn't turn that into
-	// an error because the returned message is not listened to.
+	// binding matching the routing key acks and drops it. Set ConfigPublish.Mandatory to get ErrUnroutable
+	// instead.
 	PublisherConfirms bool
 }
 
@@ -63,8 +63,11 @@ type ConfigConsume struct {
 
 // ConfigPublish is the configuration for the publisher
 type ConfigPublish struct {
-	Exchange        string
-	RoutingKey      string
+	Exchange   string
+	RoutingKey string
+	// Mandatory asks the broker to return the message when no queue is bound to receive it. With
+	// ConfigConnection.PublisherConfirms on, Publish then fails with ErrUnroutable; off, the returned message
+	// is discarded and Publish returns nil.
 	Mandatory       bool
 	Immediate       bool
 	Headers         amqp.Table

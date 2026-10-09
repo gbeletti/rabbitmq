@@ -91,8 +91,9 @@ func dial(config ConfigConnection) (*state, error) {
 	return st, nil
 }
 
-// openProducer opens the producer channel on st.conn, in confirm mode when st.confirms is set, and sets
-// every producer field of st. On error nothing is left open and st is not changed.
+// openProducer opens the producer channel on st.conn, in confirm mode and listening to returned messages
+// when st.confirms is set, and sets every producer field of st. On error nothing is left open and st is not
+// changed.
 func (st *state) openProducer() error {
 	ch, err := st.conn.Channel()
 	if err != nil {
@@ -100,14 +101,16 @@ func (st *state) openProducer() error {
 	}
 	producerClose := ch.NotifyClose(make(chan *amqp.Error, 1))
 	var reason *closeReason
+	var returns *returnTracker
 	if st.confirms {
 		reason = watchClose(ch)
+		returns = watchReturns(ch)
 		if err = ch.Confirm(false); err != nil {
 			_ = ch.Close()
 			return err
 		}
 	}
-	st.chProducer, st.producerClose, st.producerReason = ch, producerClose, reason
+	st.chProducer, st.producerClose, st.producerReason, st.producerReturns = ch, producerClose, reason, returns
 	return nil
 }
 
