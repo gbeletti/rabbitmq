@@ -72,7 +72,13 @@ func dial(config ConfigConnection) (*state, error) {
 	if err != nil {
 		return nil, err
 	}
-	st := &state{conn: conn, consumerRPC: new(sync.Mutex), prefetchCount: config.PrefetchCount, confirms: config.PublisherConfirms}
+	st := &state{
+		conn:          conn,
+		consumerRPC:   new(sync.Mutex),
+		declarer:      &declarer{conn: conn},
+		prefetchCount: config.PrefetchCount,
+		confirms:      config.PublisherConfirms,
+	}
 	st.connClose = conn.NotifyClose(make(chan *amqp.Error, 1))
 	if err = st.openProducer(); err != nil {
 		st.close()

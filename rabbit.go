@@ -45,6 +45,10 @@ type state struct {
 	// reopenProducer copies the state and keeps the same consumer channel.
 	consumerRPC *sync.Mutex
 
+	// declarer runs the declarations on a channel of their own; a pointer, shared by the copies
+	// reopenProducer makes.
+	declarer *declarer
+
 	// prefetchCount is the Qos set on chConsumer; it caps the goroutines of a concurrent consumer.
 	prefetchCount int
 
@@ -69,6 +73,32 @@ func watchClose(ch *amqp.Channel) *closeReason {
 		close(reason.done)
 	}()
 	return reason
+}
+
+// declarer owns the channel the declarations run on, apart from the consumers': the broker answers an invalid
+// declaration (e.g. 406 for a queue redeclared with other arguments) by closing the channel it came on, and
+// here that channel only holds declarations. It is reopened by the next declaration, so the failure reaches
+// only the call that caused it.
+type declarer struct {
+	// mu serializes the declarations, since amqp091-go mismatches concurrent RPCs on a channel (see
+	// consumerCall), and guards ch.
+	mu   sync.Mutex
+	conn *amqp.Connection
+	ch   *amqp.Channel
+}
+
+// call runs fn on the declarations channel, opening it first when it is not open yet or the broker closed it.
+func (d *declarer) call(fn func(ch *amqp.Channel) error) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.ch == nil || d.ch.IsClosed() {
+		ch, err := d.conn.Channel()
+		if err != nil {
+			return err
+		}
+		d.ch = ch
+	}
+	return fn(d.ch)
 }
 
 // consumerCall runs fn holding consumerRPC, and every synchronous RPC on chConsumer must go through it:
