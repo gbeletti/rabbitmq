@@ -91,8 +91,8 @@ func dial(config ConfigConnection) (*state, error) {
 	return st, nil
 }
 
-// openProducer opens the producer channel on st.conn, in confirm mode when st.confirms is set. On error
-// nothing is left open and st.chProducer stays nil.
+// openProducer opens the producer channel on st.conn, in confirm mode when st.confirms is set, and sets
+// every producer field of st. On error nothing is left open and st is not changed.
 func (st *state) openProducer() error {
 	ch, err := st.conn.Channel()
 	if err != nil {
@@ -163,13 +163,9 @@ func (r *rabbit) watch(st *state, notify chan *amqp.Error) {
 // consumer channel and its consumers. ok is false when the channel can't be opened or the state is no
 // longer current, and then the caller handles it as any other close.
 func (r *rabbit) reopenProducer(st *state) (next *state, ok bool) {
-	next = &state{
-		conn:          st.conn,
-		chConsumer:    st.chConsumer,
-		connClose:     st.connClose,
-		consumerClose: st.consumerClose,
-		confirms:      st.confirms,
-	}
+	// A copy carries every field that is not the producer channel's, which openProducer then replaces.
+	copied := *st
+	next = &copied
 	if err := next.openProducer(); err != nil {
 		return nil, false
 	}
