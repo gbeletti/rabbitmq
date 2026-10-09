@@ -8,16 +8,17 @@ func (r *rabbit) CreateQueue(config ConfigQueue) (queue amqp.Queue, err error) {
 	if err != nil {
 		return
 	}
-	st.consumerRPC.Lock()
-	defer st.consumerRPC.Unlock()
-	queue, err = st.chConsumer.QueueDeclare(
-		config.Name,
-		config.Durable,
-		config.AutoDelete,
-		config.Exclusive,
-		config.NoWait,
-		config.Args,
-	)
+	err = st.consumerCall(func(ch *amqp.Channel) (err error) {
+		queue, err = ch.QueueDeclare(
+			config.Name,
+			config.Durable,
+			config.AutoDelete,
+			config.Exclusive,
+			config.NoWait,
+			config.Args,
+		)
+		return
+	})
 	return
 }
 
@@ -27,16 +28,15 @@ func (r *rabbit) BindQueueExchange(config ConfigBindQueue) (err error) {
 	if err != nil {
 		return
 	}
-	st.consumerRPC.Lock()
-	defer st.consumerRPC.Unlock()
-	err = st.chConsumer.QueueBind(
-		config.QueueName,
-		config.RoutingKey,
-		config.Exchange,
-		config.NoWait,
-		config.Args,
-	)
-	return
+	return st.consumerCall(func(ch *amqp.Channel) error {
+		return ch.QueueBind(
+			config.QueueName,
+			config.RoutingKey,
+			config.Exchange,
+			config.NoWait,
+			config.Args,
+		)
+	})
 }
 
 // UnbindQueueExchange unbinds a queue from an exchange
@@ -45,13 +45,12 @@ func (r *rabbit) UnbindQueueExchange(config ConfigBindQueue) (err error) {
 	if err != nil {
 		return
 	}
-	st.consumerRPC.Lock()
-	defer st.consumerRPC.Unlock()
-	err = st.chConsumer.QueueUnbind(
-		config.QueueName,
-		config.RoutingKey,
-		config.Exchange,
-		config.Args,
-	)
-	return
+	return st.consumerCall(func(ch *amqp.Channel) error {
+		return ch.QueueUnbind(
+			config.QueueName,
+			config.RoutingKey,
+			config.Exchange,
+			config.Args,
+		)
+	})
 }

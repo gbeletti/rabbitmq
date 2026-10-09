@@ -24,17 +24,18 @@ func (r *rabbit) Consume(ctx context.Context, config ConfigConsume, f func(*amqp
 		config.Consumer = uniqueConsumerTag()
 	}
 	var msgs <-chan amqp.Delivery
-	st.consumerRPC.Lock()
-	msgs, err = st.chConsumer.Consume(
-		config.QueueName,
-		config.Consumer,
-		config.AutoAck,
-		config.Exclusive,
-		config.NoLocal,
-		config.NoWait,
-		config.Args,
-	)
-	st.consumerRPC.Unlock()
+	err = st.consumerCall(func(ch *amqp.Channel) (err error) {
+		msgs, err = ch.Consume(
+			config.QueueName,
+			config.Consumer,
+			config.AutoAck,
+			config.Exclusive,
+			config.NoLocal,
+			config.NoWait,
+			config.Args,
+		)
+		return
+	})
 	if err != nil {
 		return
 	}
@@ -55,9 +56,9 @@ func (r *rabbit) Consume(ctx context.Context, config ConfigConsume, f func(*amqp
 				done()
 			}
 		case <-ctx.Done():
-			st.consumerRPC.Lock()
-			err = st.chConsumer.Cancel(config.Consumer, false)
-			st.consumerRPC.Unlock()
+			err = st.consumerCall(func(ch *amqp.Channel) error {
+				return ch.Cancel(config.Consumer, false)
+			})
 			if err != nil {
 				if errors.Is(err, amqp.ErrClosed) {
 					return nil // the channel is gone, and so are the deliveries it buffered

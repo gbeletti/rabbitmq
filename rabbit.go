@@ -36,13 +36,20 @@ type state struct {
 	chConsumer *amqp.Channel
 	chProducer *amqp.Channel
 
-	// consumerRPC serializes the synchronous RPCs on chConsumer (declarations, binds, basic.consume,
-	// basic.cancel and its close): amqp091-go sends and then waits for the reply without a lock, so two
-	// concurrent ones take each other's reply and fail with ErrCommandInvalid. It is a pointer because
+	// consumerRPC serializes the synchronous RPCs on chConsumer; use consumerCall. It is a pointer because
 	// reopenProducer copies the state and keeps the same consumer channel.
 	consumerRPC *sync.Mutex
 
 	connClose, producerClose, consumerClose chan *amqp.Error
+}
+
+// consumerCall runs fn holding consumerRPC, and every synchronous RPC on chConsumer must go through it:
+// amqp091-go sends and then waits for the reply without a lock, so two concurrent RPCs on a channel take
+// each other's reply and fail with ErrCommandInvalid, or silently get the wrong one when both are alike.
+func (st *state) consumerCall(fn func(ch *amqp.Channel) error) error {
+	st.consumerRPC.Lock()
+	defer st.consumerRPC.Unlock()
+	return fn(st.chConsumer)
 }
 
 // NewRabbitMQ creates the object to manage the operations to rabbitMQ. After Close it can't be connected
