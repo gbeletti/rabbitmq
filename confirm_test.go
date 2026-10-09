@@ -111,6 +111,14 @@ func TestPublishConfirmHonorsContext(t *testing.T) {
 	connectWithConfirms(t, rabbit, uri, queue)
 	defer closeConnection(t, rabbit)
 
+	// Canceled before the send: nothing went out, so it must not look like an unknown outcome.
+	canceled, cancelNow := context.WithCancel(context.Background())
+	cancelNow()
+	err := rabbit.Publish(canceled, []byte("never sent"), rabbitmq.NewConfigPublish("", queue))
+	if !errors.Is(err, context.Canceled) || errors.Is(err, rabbitmq.ErrNotConfirmed) {
+		t.Fatalf("expected context.Canceled without ErrNotConfirmed, got: %v", err)
+	}
+
 	// A memory alarm makes the broker stop reading from publishers, so the confirm never comes.
 	setWatermark := func(value string) {
 		t.Helper()
@@ -124,7 +132,7 @@ func TestPublishConfirmHonorsContext(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	err := rabbit.Publish(ctx, []byte("blocked"), rabbitmq.NewConfigPublish("", queue))
+	err = rabbit.Publish(ctx, []byte("blocked"), rabbitmq.NewConfigPublish("", queue))
 	if !errors.Is(err, rabbitmq.ErrNotConfirmed) || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected ErrNotConfirmed and context.DeadlineExceeded, got: %v", err)
 	}

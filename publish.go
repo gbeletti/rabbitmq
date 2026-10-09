@@ -8,14 +8,23 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// ErrNotConfirmed is returned by Publish, with ConfigConnection.PublisherConfirms on, when the broker did not
-// confirm the message. The chain also carries the cause: the broker's *amqp.Error when it closed the producer
-// channel first (e.g. 404 NOT_FOUND for a missing exchange), or ctx.Err() when ctx ended while waiting. In
-// that last case, and when the connection dropped, the message may still have been enqueued.
+// ErrNotConfirmed is returned by Publish, with ConfigConnection.PublisherConfirms on, when the message was
+// sent but the broker did not confirm it. What the caller can rely on:
+//   - an error that does not match ErrNotConfirmed (e.g. amqp.ErrClosed): the message was not sent, so a
+//     retry can't duplicate it;
+//   - ErrNotConfirmed: the outcome is unknown. The broker nacked it, the producer channel closed before the
+//     confirm, or ctx ended while waiting; the message may still have been enqueued, so a retry can
+//     duplicate it and consumers must be idempotent.
+//
+// When the channel closed, the chain carries the broker's *amqp.Error, but that is why the CHANNEL closed:
+// it may have been caused by another Publish running concurrently (e.g. 404 for its missing exchange), so
+// don't treat it as a permanent failure of this message.
 var ErrNotConfirmed = errors.New("rabbitmq: publish not confirmed by the broker")
 
 // Publish publishes body to exchange with routing key. With ConfigConnection.PublisherConfirms on, it also
-// waits for the broker to confirm the message, honoring ctx, and returns ErrNotConfirmed when it doesn't.
+// waits for the broker to confirm the message and returns ErrNotConfirmed when it doesn't. ctx bounds that
+// wait, not the write to the socket: when the broker stops reading (memory or disk alarm) and the socket
+// buffer is full, the write blocks past ctx, as it does without confirms.
 func (r *rabbit) Publish(ctx context.Context, body []byte, config ConfigPublish) (err error) {
 	st, release, err := r.acquire()
 	if err != nil {
@@ -70,5 +79,5 @@ func (st *state) waitConfirm(ctx context.Context, confirm *amqp.DeferredConfirma
 		}
 	case <-ctx.Done():
 	}
-	return fmt.Errorf("%w: producer channel closed before the confirm: %w", ErrNotConfirmed, reason)
+	return fmt.Errorf("%w: producer channel closed (possibly by another publish) before the confirm: %w", ErrNotConfirmed, reason)
 }

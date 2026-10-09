@@ -141,7 +141,17 @@ configConn := rabbitmq.ConfigConnection{
 }
 ```
 
-Then `Publish` waits for the broker to confirm each message, honoring the context, and returns an error matching `rabbitmq.ErrNotConfirmed` when the broker nacks it, closes the producer channel before confirming it (the broker's `*amqp.Error`, e.g. `404 NOT_FOUND`, is in the chain) or the context ends first. Each `Publish` takes one more round trip to the broker; concurrent publishes still share the channel and wait in parallel.
+Then `Publish` waits for the broker to confirm each message. Each `Publish` takes one more round trip to the broker; concurrent publishes still share the channel and wait in parallel. The errors tell the caller what happened:
+
+- an error that does not match `rabbitmq.ErrNotConfirmed` (e.g. `amqp.ErrClosed`): the message was not sent, so retrying can't duplicate it;
+- `rabbitmq.ErrNotConfirmed`: the message was sent and the outcome is unknown. The broker nacked it, the producer channel closed before the confirm, or the context ended while waiting. It may still have been enqueued, so a retry can duplicate it and consumers must be idempotent.
+
+When the channel closed, the broker's `*amqp.Error` is in the chain, e.g. `404 NOT_FOUND`. It says why the **channel** closed, which may have been another publish running concurrently, so don't treat it as a permanent failure of this message.
+
+Two limits:
+
+- A confirm means the broker took the message, not that a queue got it. An existing exchange with no binding matching the routing key acks and drops the message, and `Mandatory` doesn't turn that into an error, because the returned message is not listened to.
+- The context bounds the wait for the confirm, not the write to the socket. When the broker stops reading from publishers (memory or disk alarm) and the socket buffer fills up, `Publish` blocks past the context, as it does without confirms.
 
 ## Reference
 

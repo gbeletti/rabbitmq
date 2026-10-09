@@ -13,6 +13,9 @@ type ConfigConnection struct {
 	// PublisherConfirms puts the producer channel in confirm mode: Publish waits for the broker to confirm
 	// the message and fails when it doesn't (see ErrNotConfirmed). Off, Publish returns once the message is
 	// written to the socket, and a publish the broker rejects (e.g. missing exchange) is lost silently.
+	// A confirm means the broker took the message, not that a queue got it: an existing exchange with no
+	// binding matching the routing key acks and drops it, and ConfigPublish.Mandatory doesn't turn that into
+	// an error because the returned message is not listened to.
 	PublisherConfirms bool
 }
 
