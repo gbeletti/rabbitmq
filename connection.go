@@ -2,6 +2,7 @@ package rabbitmq
 
 import (
 	"context"
+	"errors"
 	"log"
 	"sync"
 	"time"
@@ -12,75 +13,256 @@ import (
 var notifyOpenConn, notifySetupDone []chan struct{}
 var muxNotifyOpenConn, muxNotifySetup sync.Mutex = sync.Mutex{}, sync.Mutex{}
 
+// Backoff between failed connection attempts in KeepConnectionAndSetup.
+var reconnectBackoffMin, reconnectBackoffMax = time.Second, 30 * time.Second
+
 // Connect connects to the rabbitMQ server and also creates the channels to produce and consume messages.
 // It can also notify the connection is open to other goroutines if the function NotifyOpenConnection
 // is called before connecting.
+//
+// The returned channel fires when the connection or its consumer channel closes: it receives the
+// *amqp.Error and is then closed when the close came from the broker, and it is only closed (no error) when
+// the close was graceful, i.e. Close was called. When the broker closes the consumer channel with the
+// connection still up (e.g. an invalid ack), the connection is torn down so the caller reconnects and
+// restarts the consumers. When it closes the producer channel (e.g. publishing to an exchange that does not
+// exist), only that channel is reopened and nothing is reported, so consumers are not disturbed.
+//
+// Calling Connect again replaces and closes the previous connection, whose channel then receives
+// ErrSuperseded. Do not run Connect or KeepConnectionAndSetup concurrently on the same client.
 func (r *rabbit) Connect(config ConfigConnection) (notify chan *amqp.Error, err error) {
-	r.conn, err = amqp.Dial(config.URI)
+	r.mu.Lock()
+	closed := r.closed
+	r.mu.Unlock()
+	if closed {
+		return nil, ErrClientClosed
+	}
+
+	st, err := dial(config)
 	if err != nil {
-		return
+		return nil, err
 	}
-	r.chProducer, err = r.conn.Channel()
-	if err != nil {
-		return
+
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		st.close()
+		return nil, ErrClientClosed
 	}
-	r.chConsumer, err = r.conn.Channel()
-	if err != nil {
-		return
+	old := r.st
+	r.st = st
+	r.mu.Unlock()
+	if old != nil {
+		old.close()
 	}
-	if config.PrefetchCount > 0 {
-		err = r.chConsumer.Qos(config.PrefetchCount, 0, false)
-		if err != nil {
-			return
-		}
-	}
+
+	notify = make(chan *amqp.Error, 1)
+	go r.watch(st, notify)
 	notifyOpenConnections()
-	notify = make(chan *amqp.Error)
-	r.conn.NotifyClose(notify)
-	return
+	return notify, nil
 }
 
-// Close closes the rabbitMQ connection
-func (r *rabbit) Close(ctx context.Context) (done chan struct{}) {
-	done = make(chan struct{})
-
-	doneWaiting := make(chan struct{})
-	go func() {
-		r.wg.Wait()
-		close(doneWaiting)
-	}()
-
-	go func() {
-		defer close(done)
-		select { // either waits for the messages to process or timeout from context
-		case <-doneWaiting:
-		case <-ctx.Done():
+// dial opens the connection and its channels, closing the connection if any step after the dial fails so it
+// does not leak a TCP connection per retry.
+func dial(config ConfigConnection) (*state, error) {
+	conn, err := amqp.Dial(config.URI)
+	if err != nil {
+		return nil, err
+	}
+	st := &state{conn: conn}
+	st.connClose = conn.NotifyClose(make(chan *amqp.Error, 1))
+	st.chProducer, err = conn.Channel()
+	if err != nil {
+		st.close()
+		return nil, err
+	}
+	st.producerClose = st.chProducer.NotifyClose(make(chan *amqp.Error, 1))
+	st.chConsumer, err = conn.Channel()
+	if err != nil {
+		st.close()
+		return nil, err
+	}
+	st.consumerClose = st.chConsumer.NotifyClose(make(chan *amqp.Error, 1))
+	if config.PrefetchCount > 0 {
+		err = st.chConsumer.Qos(config.PrefetchCount, 0, false)
+		if err != nil {
+			st.close()
+			return nil, err
 		}
-		closeConnections(r)
-	}()
-	return
+	}
+	return st, nil
 }
 
-// KeepConnectionAndSetup starts a goroutine to keep the connection open and everytime the connection is open, it will call the setupRabbit function. It is important to pass a context with cancel so the goroutine can be closed when the context is done. Otherwise it will run until the program ends.
-func KeepConnectionAndSetup(ctx context.Context, conn Connector, config ConfigConnection, setupRabbit RabbitSetup) {
-	go func() {
-		for {
-			notifyClose, err := conn.Connect(config)
-			if err != nil {
-				log.Printf("error connecting to rabbitmq: [%s]\n", err)
-				time.Sleep(time.Second * 5)
+// ErrSuperseded is sent on the channel returned by Connect when a later Connect replaced that connection.
+var ErrSuperseded = &amqp.Error{Code: amqp.ConnectionForced, Reason: "rabbitmq: connection superseded by a newer Connect"}
+
+// watch reports on notify the first close of the connection or the consumer channel; a producer channel
+// closed by the broker is reopened in place.
+func (r *rabbit) watch(st *state, notify chan *amqp.Error) {
+	defer close(notify)
+	for {
+		var amqpErr *amqp.Error
+		producer := false
+		select {
+		case amqpErr = <-st.connClose:
+		case amqpErr = <-st.consumerClose:
+		case amqpErr = <-st.producerClose:
+			producer = true
+		}
+
+		if producer && amqpErr != nil && !st.conn.IsClosed() {
+			if next, ok := r.reopenProducer(st); ok {
+				log.Printf("rabbitmq producer channel closed by the broker, reopened it: [%s]\n", amqpErr)
+				st = next
 				continue
 			}
+		}
+
+		r.mu.Lock()
+		current := r.st == st
+		if current {
+			r.st = nil
+		}
+		closed := r.closed
+		r.mu.Unlock()
+		switch {
+		case closed:
+			return // graceful: Close took this state out and closes it
+		case !current:
+			notify <- ErrSuperseded // a newer Connect took this state out and closes it
+			return
+		case amqpErr == nil:
+			// Closed without error but not by us, e.g. it died before NotifyClose was registered.
+			amqpErr = amqp.ErrClosed
+		}
+		st.close()
+		notify <- amqpErr
+		return
+	}
+}
+
+// reopenProducer opens a new producer channel on the same connection and swaps in a state that keeps the
+// consumer channel and its consumers. ok is false when the channel can't be opened or the state is no
+// longer current, and then the caller handles it as any other close.
+func (r *rabbit) reopenProducer(st *state) (next *state, ok bool) {
+	ch, err := st.conn.Channel()
+	if err != nil {
+		return nil, false
+	}
+	next = &state{
+		conn:          st.conn,
+		chConsumer:    st.chConsumer,
+		chProducer:    ch,
+		connClose:     st.connClose,
+		consumerClose: st.consumerClose,
+		producerClose: ch.NotifyClose(make(chan *amqp.Error, 1)),
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed || r.st != st {
+		_ = ch.Close()
+		return nil, false
+	}
+	r.st = next
+	return next, true
+}
+
+// Close closes the rabbitMQ connection. It waits the in-flight operations (consumers and publishes) to
+// finish or the context to be done, whichever comes first. Publishing is still allowed while it waits, so
+// handlers being drained can publish; after that the client is closed for good.
+func (r *rabbit) Close(ctx context.Context) (done chan struct{}) {
+	done = make(chan struct{})
+	go func() {
+		defer close(done)
+		r.waitOrDone(ctx)
+
+		r.mu.Lock()
+		r.closed = true
+		st := r.st
+		r.st = nil
+		r.mu.Unlock()
+
+		// Operations that acquired the state between the first wait and the flag above.
+		r.waitOrDone(ctx)
+		if st != nil {
+			st.close()
+		}
+	}()
+	return
+}
+
+func (r *rabbit) waitOrDone(ctx context.Context) {
+	r.mu.Lock()
+	idle := r.idle
+	r.mu.Unlock()
+	select { // either waits for the messages to process or timeout from context
+	case <-idle:
+	case <-ctx.Done():
+	}
+}
+
+// KeepConnectionAndSetup starts a goroutine to keep the connection open and everytime the connection is open, it will call the setupRabbit function. It is important to pass a context with cancel so the goroutine can be closed when the context is done. Otherwise it will run until the program ends or Close is called.
+// The returned channel is closed when the goroutine exits. Run only one per client and don't call Connect on
+// that client by hand: either one replaces the other's connection, and this loop then stops.
+func KeepConnectionAndSetup(ctx context.Context, conn Connector, config ConfigConnection, setupRabbit RabbitSetup) <-chan struct{} {
+	exited := make(chan struct{})
+	go func() {
+		defer close(exited)
+		backoff := reconnectBackoffMin
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			notifyClose, err := conn.Connect(config)
+			if err != nil {
+				if errors.Is(err, ErrClientClosed) {
+					return
+				}
+				log.Printf("error connecting to rabbitmq, retrying in %s: [%s]\n", backoff, err)
+				if !sleepCtx(ctx, backoff) {
+					return
+				}
+				backoff = min(backoff*2, reconnectBackoffMax)
+				continue
+			}
+			connectedAt := time.Now()
 			setupRabbit.Setup()
 			notifySetupIsDone()
 			select {
-			case <-notifyClose:
-				continue
+			case amqpErr := <-notifyClose:
+				if amqpErr == nil {
+					return // closed gracefully by Close
+				}
+				if amqpErr == ErrSuperseded {
+					log.Println("rabbitmq connection replaced by another Connect, stopping this reconnection loop")
+					return
+				}
+				// Only a connection that held up resets the backoff: a setup or publish that keeps getting the
+				// channel closed right after connecting would otherwise reconnect in a tight loop.
+				if time.Since(connectedAt) >= reconnectBackoffMax {
+					backoff = reconnectBackoffMin
+				}
+				log.Printf("rabbitmq connection lost, reconnecting in %s: [%s]\n", backoff, amqpErr)
+				if !sleepCtx(ctx, backoff) {
+					return
+				}
+				backoff = min(backoff*2, reconnectBackoffMax)
 			case <-ctx.Done():
 				return
 			}
 		}
 	}()
+	return exited
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // NotifyOpenConnection registers a channel to be notified when the connection is open
@@ -115,24 +297,19 @@ func notifySetupIsDone() {
 	notifySetupDone = make([]chan struct{}, 0)
 }
 
-func closeConnections(r *rabbit) {
-	var err error
-	if r.chConsumer != nil {
-		err = r.chConsumer.Close()
-		if err != nil {
+// close closes the channels and the connection. Errors are expected when the broker already closed them.
+func (st *state) close() {
+	if st.chConsumer != nil {
+		if err := st.chConsumer.Close(); err != nil && !errors.Is(err, amqp.ErrClosed) {
 			log.Printf("Error closing consumer channel: [%s]\n", err)
 		}
 	}
-	if r.chProducer != nil {
-		err = r.chProducer.Close()
-		if err != nil {
+	if st.chProducer != nil {
+		if err := st.chProducer.Close(); err != nil && !errors.Is(err, amqp.ErrClosed) {
 			log.Printf("Error closing producer channel: [%s]\n", err)
 		}
 	}
-	if r.conn != nil {
-		err = r.conn.Close()
-		if err != nil {
-			log.Printf("Error closing connection: [%s]\n", err)
-		}
+	if err := st.conn.Close(); err != nil && !errors.Is(err, amqp.ErrClosed) {
+		log.Printf("Error closing connection: [%s]\n", err)
 	}
 }
