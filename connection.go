@@ -71,7 +71,7 @@ func dial(config ConfigConnection) (*state, error) {
 	if err != nil {
 		return nil, err
 	}
-	st := &state{conn: conn, consumerRPC: new(sync.Mutex)}
+	st := &state{conn: conn, consumerRPC: new(sync.Mutex), prefetchCount: config.PrefetchCount}
 	st.connClose = conn.NotifyClose(make(chan *amqp.Error, 1))
 	st.chProducer, err = conn.Channel()
 	if err != nil {

@@ -17,6 +17,11 @@ var ErrClientClosed = errors.New("rabbitmq: client is closed")
 // good" from "reconnecting", which returns amqp.ErrClosed alone.
 var errOpClosed = fmt.Errorf("%w: %w", ErrClientClosed, amqp.ErrClosed)
 
+// ErrUnboundedConcurrency is returned by Consume and ConfigConsume.Validate when ExecuteConcurrent is set but
+// nothing limits the handlers running: no MaxConcurrent, and either the connection has no PrefetchCount or
+// AutoAck is on (the broker ignores the prefetch for it). The returned error wraps it with the reason.
+var ErrUnboundedConcurrency = errors.New("rabbitmq: ExecuteConcurrent needs MaxConcurrent, or PrefetchCount > 0 with AutoAck off")
+
 type rabbit struct {
 	// mu guards st, closed and the in-flight counter. st is replaced as a whole on every (re)connection, so
 	// an operation that grabbed it keeps using a consistent connection/channels set.
@@ -39,6 +44,9 @@ type state struct {
 	// consumerRPC serializes the synchronous RPCs on chConsumer; use consumerCall. It is a pointer because
 	// reopenProducer copies the state and keeps the same consumer channel.
 	consumerRPC *sync.Mutex
+
+	// prefetchCount is the Qos set on chConsumer; it caps the goroutines of a concurrent consumer.
+	prefetchCount int
 
 	connClose, producerClose, consumerClose chan *amqp.Error
 }
