@@ -17,10 +17,10 @@ var ErrClientClosed = errors.New("rabbitmq: client is closed")
 // good" from "reconnecting", which returns amqp.ErrClosed alone.
 var errOpClosed = fmt.Errorf("%w: %w", ErrClientClosed, amqp.ErrClosed)
 
-// ErrUnboundedConcurrency is returned by Consume when ExecuteConcurrent is set but nothing limits the
-// deliveries in flight: the connection has no PrefetchCount, or AutoAck is on (the broker ignores the prefetch
-// for it). Each delivery runs in its own goroutine, so a backlog would spawn one goroutine per message.
-var ErrUnboundedConcurrency = errors.New("rabbitmq: ExecuteConcurrent needs PrefetchCount > 0 and AutoAck off")
+// ErrUnboundedConcurrency is returned by Consume and ConfigConsume.Validate when ExecuteConcurrent is set but
+// nothing limits the handlers running: no MaxConcurrent, and either the connection has no PrefetchCount or
+// AutoAck is on (the broker ignores the prefetch for it). The returned error wraps it with the reason.
+var ErrUnboundedConcurrency = errors.New("rabbitmq: ExecuteConcurrent needs MaxConcurrent, or PrefetchCount > 0 with AutoAck off")
 
 type rabbit struct {
 	// mu guards st, closed and the in-flight counter. st is replaced as a whole on every (re)connection, so
