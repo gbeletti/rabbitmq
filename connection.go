@@ -148,15 +148,10 @@ func (r *rabbit) reopenProducer(st *state) (next *state, ok bool) {
 	if err != nil {
 		return nil, false
 	}
-	next = &state{
-		conn:          st.conn,
-		chConsumer:    st.chConsumer,
-		chProducer:    ch,
-		prefetchCount: st.prefetchCount,
-		connClose:     st.connClose,
-		consumerClose: st.consumerClose,
-		producerClose: ch.NotifyClose(make(chan *amqp.Error, 1)),
-	}
+	copied := *st // a copy, so every other field of the connection carries over
+	copied.chProducer = ch
+	copied.producerClose = ch.NotifyClose(make(chan *amqp.Error, 1))
+	next = &copied
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed || r.st != st {
