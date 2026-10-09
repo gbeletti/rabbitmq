@@ -68,7 +68,7 @@ func dial(config ConfigConnection) (*state, error) {
 	if err != nil {
 		return nil, err
 	}
-	st := &state{conn: conn}
+	st := &state{conn: conn, consumerRPC: new(sync.Mutex)}
 	st.connClose = conn.NotifyClose(make(chan *amqp.Error, 1))
 	st.chProducer, err = conn.Channel()
 	if err != nil {
@@ -152,6 +152,7 @@ func (r *rabbit) reopenProducer(st *state) (next *state, ok bool) {
 		conn:          st.conn,
 		chConsumer:    st.chConsumer,
 		chProducer:    ch,
+		consumerRPC:   st.consumerRPC,
 		connClose:     st.connClose,
 		consumerClose: st.consumerClose,
 		producerClose: ch.NotifyClose(make(chan *amqp.Error, 1)),
@@ -300,7 +301,10 @@ func notifySetupIsDone() {
 // close closes the channels and the connection. Errors are expected when the broker already closed them.
 func (st *state) close() {
 	if st.chConsumer != nil {
-		if err := st.chConsumer.Close(); err != nil && !errors.Is(err, amqp.ErrClosed) {
+		st.consumerRPC.Lock()
+		err := st.chConsumer.Close()
+		st.consumerRPC.Unlock()
+		if err != nil && !errors.Is(err, amqp.ErrClosed) {
 			log.Printf("Error closing consumer channel: [%s]\n", err)
 		}
 	}

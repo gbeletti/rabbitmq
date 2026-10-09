@@ -6,6 +6,8 @@ func (r *rabbit) CreateExchange(config ConfigExchange) (err error) {
 	if err != nil {
 		return
 	}
+	st.consumerRPC.Lock()
+	defer st.consumerRPC.Unlock()
 	err = st.chConsumer.ExchangeDeclare(
 		config.Name,
 		config.Type,

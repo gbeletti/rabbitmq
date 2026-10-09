@@ -36,6 +36,12 @@ type state struct {
 	chConsumer *amqp.Channel
 	chProducer *amqp.Channel
 
+	// consumerRPC serializes the synchronous RPCs on chConsumer (declarations, binds, basic.consume,
+	// basic.cancel and its close): amqp091-go sends and then waits for the reply without a lock, so two
+	// concurrent ones take each other's reply and fail with ErrCommandInvalid. It is a pointer because
+	// reopenProducer copies the state and keeps the same consumer channel.
+	consumerRPC *sync.Mutex
+
 	connClose, producerClose, consumerClose chan *amqp.Error
 }
 
