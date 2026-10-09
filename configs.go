@@ -48,7 +48,8 @@ type ConfigExchange struct {
 // ExecuteConcurrent runs each delivery in its own goroutine, at most MaxConcurrent at once. When MaxConcurrent
 // is not set (0 or less) the limit is ConfigConnection.PrefetchCount, which requires AutoAck off since the broker
 // ignores the prefetch for it; without either bound Consume returns ErrUnboundedConcurrency. The limit is per
-// Consume call: after a reconnection, handlers still running from the previous channel are not counted.
+// Consume call: after a reconnection, handlers still running from the previous channel are not counted. With
+// AutoAck, MaxConcurrent bounds the handlers but not the deliveries waiting for one, which amqp buffers.
 type ConfigConsume struct {
 	QueueName         string
 	Consumer          string

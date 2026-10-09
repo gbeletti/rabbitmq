@@ -106,7 +106,8 @@ The option `ExecuteConcurrent` defines if the message received should run in a g
 `AutoAck` off since the broker ignores the prefetch for it. Without either bound `Consume` returns
 `ErrUnboundedConcurrency` instead of spawning one goroutine per message. `config.Validate(configConn)` returns
 the same error, to fail at boot. The limit is per `Consume` call: handlers still running from a channel that
-closed before a reconnection are not counted by the new call.
+closed before a reconnection are not counted by the new call. With `AutoAck`, `MaxConcurrent` bounds the handlers
+but not the deliveries waiting for one, which amqp buffers in memory.
 
 Then create the function to be executed upon getting a new message.
 
