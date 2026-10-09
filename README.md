@@ -45,7 +45,9 @@ rabbitmq.KeepConnectionAndSetup(ctx, rabbit, configConn, setup)
 
 ```
 
-The function `KeepConnectionAndSetup` will create a goroutine to keep the connection open until the context is canceled. It is important that the context is canceled on the shutdown of the service so it stops trying to keep the connection opened.
+The function `KeepConnectionAndSetup` will create a goroutine to keep the connection open until the context is canceled or `Close` is called. It is important that the context is canceled on the shutdown of the service so it stops trying to keep the connection opened. It returns a channel that is closed when that goroutine exits.
+
+It reconnects, and runs the setup again, when the connection drops and also when the broker closes one of the channels while the connection stays up (e.g. publishing to an exchange that does not exist). Failed attempts are retried with exponential backoff from 1s up to 30s.
 
 ### Shutting down gracefully
 
@@ -59,7 +61,7 @@ done = rabbit.Close(ctx)
 <-done
 ```
 
-It will stop receiving new messages and wait processing all the messages received from queue and publishing message to exchange or it will timeout after a given time.
+It will stop receiving new messages and wait processing all the messages received from queue and publishing message to exchange or it will timeout after a given time. Publishing is still allowed while it waits; after that the client is closed for good and `Connect` returns `ErrClientClosed`.
 
 ### Creating queues
 
