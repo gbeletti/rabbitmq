@@ -148,10 +148,22 @@ Then `Publish` waits for the broker to confirm each message. Each `Publish` take
 
 When the channel closed, the broker's `*amqp.Error` is in the chain, e.g. `404 NOT_FOUND`. It says why the **channel** closed, which may have been another publish running concurrently, so don't treat it as a permanent failure of this message.
 
-Two limits:
+A confirm means the broker took the message, not that a queue got it: an existing exchange with no binding matching the routing key acks and drops the message. Set `Mandatory` in `ConfigPublish` to catch that:
 
-- A confirm means the broker took the message, not that a queue got it. An existing exchange with no binding matching the routing key acks and drops the message, and `Mandatory` doesn't turn that into an error, because the returned message is not listened to.
-- The context bounds the wait for the confirm, not the write to the socket. When the broker stops reading from publishers (memory or disk alarm) and the socket buffer fills up, `Publish` blocks past the context, as it does without confirms.
+```go
+config := rabbitmq.NewConfigPublish("events", "order.created")
+config.Mandatory = true
+err := rabbit.Publish(ctx, body, config)
+if errors.Is(err, rabbitmq.ErrUnroutable) {
+    // no queue is bound for this routing key; the message was not enqueued anywhere
+}
+```
+
+- `rabbitmq.ErrUnroutable`: the broker returned the message because no queue is bound to receive it. It was not enqueued, so a retry can't duplicate it, but it will be returned again until a binding exists. The chain carries the broker's reply, e.g. `312 NO_ROUTE`.
+
+The returned message carries no delivery tag, so the library matches it to the oldest pending mandatory publish with the same exchange, routing key, `MessageId`, `CorrelationId` and body. Two mandatory publishes in flight at the same time that are equal in all of these route the same way, unless the bindings change between them or a headers exchange routes them by headers; only then may they swap results. Without `PublisherConfirms`, `Mandatory` has no effect on `Publish`: the returned message is discarded.
+
+The context bounds the wait for the confirm, not the write to the socket. When the broker stops reading from publishers (memory or disk alarm) and the socket buffer fills up, `Publish` blocks past the context, as it does without confirms.
 
 ## Reference
 
