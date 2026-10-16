@@ -8,7 +8,7 @@ func (r *rabbit) CreateExchange(config ConfigExchange) (err error) {
 	if err != nil {
 		return
 	}
-	return st.consumerCall(func(ch *amqp.Channel) error {
+	return st.declarer.call(func(ch *amqp.Channel) error {
 		return ch.ExchangeDeclare(
 			config.Name,
 			config.Type,

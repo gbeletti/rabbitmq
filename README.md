@@ -47,7 +47,15 @@ rabbitmq.KeepConnectionAndSetup(ctx, rabbit, configConn, setup)
 
 The function `KeepConnectionAndSetup` will create a goroutine to keep the connection open until the context is canceled or `Close` is called. It is important that the context is canceled on the shutdown of the service so it stops trying to keep the connection opened. It returns a channel that is closed when that goroutine exits.
 
-It reconnects, and runs the setup again, when the connection drops and also when the broker closes the consumer channel while the connection stays up (e.g. an invalid ack). When the broker closes only the producer channel (e.g. publishing to an exchange that does not exist), that channel is reopened in place and consumers are not touched. Failed attempts are retried with exponential backoff from 1s up to 30s.
+It reconnects, and runs the setup again, when the connection drops. Failed attempts are retried with exponential backoff from 1s up to 30s.
+
+Each `Consume` call has a channel of its own, the declarations (`CreateQueue`, `CreateExchange`, `BindQueueExchange`, `UnbindQueueExchange`) share another one and `Publish` a third, so a channel the broker closes with the connection still up does not take the others down:
+
+- a consumer's channel (e.g. an invalid ack, or the consumer ack timeout): that `Consume` reopens it, with the same backoff, and goes on; the other consumers are not touched. Only when it can't reopen it (e.g. the queue is gone) the connection is torn down, so the setup runs again;
+- the declarations' channel (e.g. `406 PRECONDITION_FAILED` for a queue redeclared with other arguments): the declaration returns the error and the next one opens a new channel;
+- the producer channel (e.g. publishing to an exchange that does not exist): it is reopened in place.
+
+A connection holds one channel per running `Consume` plus two, within the broker's `channel_max` (2047 by default).
 
 ### Shutting down gracefully
 
@@ -105,8 +113,8 @@ The option `ExecuteConcurrent` defines if the message received should run in a g
 `MaxConcurrent` handlers run at once; when it is not set, the limit is the connection `PrefetchCount`, which needs
 `AutoAck` off since the broker ignores the prefetch for it. Without either bound `Consume` returns
 `ErrUnboundedConcurrency` instead of spawning one goroutine per message. `config.Validate(configConn)` returns
-the same error, to fail at boot. The limit is per `Consume` call: handlers still running from a channel that
-closed before a reconnection are not counted by the new call. With `AutoAck`, `MaxConcurrent` bounds the handlers
+the same error, to fail at boot. The limit is per `Consume` call: it counts the handlers still running from a
+channel that call reopened, but not those from before a reconnection, which a new call does not see. With `AutoAck`, `MaxConcurrent` bounds the handlers
 but not the deliveries waiting for one, which amqp buffers in memory.
 
 Then create the function to be executed upon getting a new message.

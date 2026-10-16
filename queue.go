@@ -8,7 +8,7 @@ func (r *rabbit) CreateQueue(config ConfigQueue) (queue amqp.Queue, err error) {
 	if err != nil {
 		return
 	}
-	err = st.consumerCall(func(ch *amqp.Channel) (err error) {
+	err = st.declarer.call(func(ch *amqp.Channel) (err error) {
 		queue, err = ch.QueueDeclare(
 			config.Name,
 			config.Durable,
@@ -28,7 +28,7 @@ func (r *rabbit) BindQueueExchange(config ConfigBindQueue) (err error) {
 	if err != nil {
 		return
 	}
-	return st.consumerCall(func(ch *amqp.Channel) error {
+	return st.declarer.call(func(ch *amqp.Channel) error {
 		return ch.QueueBind(
 			config.QueueName,
 			config.RoutingKey,
@@ -45,7 +45,7 @@ func (r *rabbit) UnbindQueueExchange(config ConfigBindQueue) (err error) {
 	if err != nil {
 		return
 	}
-	return st.consumerCall(func(ch *amqp.Channel) error {
+	return st.declarer.call(func(ch *amqp.Channel) error {
 		return ch.QueueUnbind(
 			config.QueueName,
 			config.RoutingKey,

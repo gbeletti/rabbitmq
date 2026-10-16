@@ -11,10 +11,10 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// The declarations and the consumers' basic.consume/basic.cancel share the consumer channel, and amqp091-go
-// does not serialize RPCs on a channel: concurrent ones took each other's reply and failed with
-// "unexpected command received".
-func TestConcurrentRPCsOnConsumerChannel(t *testing.T) {
+// The declarations share a channel, and amqp091-go does not serialize RPCs on a channel: concurrent ones took
+// each other's reply and failed with "unexpected command received". The consumers' basic.consume and
+// basic.cancel run alongside them, each on its consumer's channel.
+func TestConcurrentDeclarationsAndConsumers(t *testing.T) {
 	uri, _ := setupRabbitContainer(t)
 	rabbit := rabbitmq.NewRabbitMQ()
 	if _, err := rabbit.Connect(rabbitmq.ConfigConnection{URI: uri, PrefetchCount: 1}); err != nil {
