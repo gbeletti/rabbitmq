@@ -57,6 +57,9 @@ func TestProducerChannelReopenedWithoutReconnect(t *testing.T) {
 	}
 	publishUntilReceived(t, ctx, rabbit, queue, received, "after producer close")
 
+	// The swapped-in state must keep what serializes the consumer channel RPCs, or this panics.
+	createQueueTest(t, rabbit, "declaredafterreopen")
+
 	select {
 	case <-setups:
 		t.Error("the connection was torn down: setup ran again after a producer channel close")
