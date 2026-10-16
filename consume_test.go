@@ -10,7 +10,13 @@ import (
 
 func consumeTest(t *testing.T, ctx context.Context, rabbit rabbitmq.Consumer, queue string) (msg string) {
 	ctxCancel, cancel := context.WithCancel(ctx)
-	defer cancel()
+	consumeDone := make(chan struct{})
+	// Wait for Consume to return: its Cancel is an RPC on the channel the next declarations use, and
+	// concurrent RPCs on one channel get their replies mixed up.
+	defer func() {
+		cancel()
+		<-consumeDone
+	}()
 	gotMessage := make(chan string)
 	var receiveMessage = func(d *amqp.Delivery) {
 		gotMessage <- string(d.Body)
@@ -20,6 +26,7 @@ func consumeTest(t *testing.T, ctx context.Context, rabbit rabbitmq.Consumer, qu
 		}
 	}
 	go func() {
+		defer close(consumeDone)
 		config := rabbitmq.ConfigConsume{
 			QueueName:         queue,
 			Consumer:          "test",

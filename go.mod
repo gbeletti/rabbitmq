@@ -6,7 +6,7 @@ toolchain go1.23.4
 
 require (
 	github.com/google/go-cmp v0.6.0
-	github.com/rabbitmq/amqp091-go v1.10.0
+	github.com/rabbitmq/amqp091-go v1.15.0
 	github.com/testcontainers/testcontainers-go v0.34.0
 )
 
