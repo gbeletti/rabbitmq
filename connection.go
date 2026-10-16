@@ -16,6 +16,9 @@ var muxNotifyOpenConn, muxNotifySetup sync.Mutex = sync.Mutex{}, sync.Mutex{}
 // Backoff between failed connection attempts in KeepConnectionAndSetup.
 var reconnectBackoffMin, reconnectBackoffMax = time.Second, 30 * time.Second
 
+// closeTimeout bounds how long closing a connection waits for the broker's reply.
+const closeTimeout = 5 * time.Second
+
 // Connect connects to the rabbitMQ server and also creates the channels to produce and consume messages.
 // It can also notify the connection is open to other goroutines if the function NotifyOpenConnection
 // is called before connecting.
@@ -68,7 +71,7 @@ func dial(config ConfigConnection) (*state, error) {
 	if err != nil {
 		return nil, err
 	}
-	st := &state{conn: conn}
+	st := &state{conn: conn, consumerRPC: new(sync.Mutex)}
 	st.connClose = conn.NotifyClose(make(chan *amqp.Error, 1))
 	st.chProducer, err = conn.Channel()
 	if err != nil {
@@ -148,14 +151,10 @@ func (r *rabbit) reopenProducer(st *state) (next *state, ok bool) {
 	if err != nil {
 		return nil, false
 	}
-	next = &state{
-		conn:          st.conn,
-		chConsumer:    st.chConsumer,
-		chProducer:    ch,
-		connClose:     st.connClose,
-		consumerClose: st.consumerClose,
-		producerClose: ch.NotifyClose(make(chan *amqp.Error, 1)),
-	}
+	copied := *st // a copy, so every other field of the connection carries over
+	copied.chProducer = ch
+	copied.producerClose = ch.NotifyClose(make(chan *amqp.Error, 1))
+	next = &copied
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed || r.st != st {
@@ -297,19 +296,10 @@ func notifySetupIsDone() {
 	notifySetupDone = make([]chan struct{}, 0)
 }
 
-// close closes the channels and the connection. Errors are expected when the broker already closed them.
+// close closes the connection, and with it both channels: RPCs pending on them return amqp.ErrClosed instead
+// of holding the close, and closeTimeout bounds the wait for the broker.
 func (st *state) close() {
-	if st.chConsumer != nil {
-		if err := st.chConsumer.Close(); err != nil && !errors.Is(err, amqp.ErrClosed) {
-			log.Printf("Error closing consumer channel: [%s]\n", err)
-		}
-	}
-	if st.chProducer != nil {
-		if err := st.chProducer.Close(); err != nil && !errors.Is(err, amqp.ErrClosed) {
-			log.Printf("Error closing producer channel: [%s]\n", err)
-		}
-	}
-	if err := st.conn.Close(); err != nil && !errors.Is(err, amqp.ErrClosed) {
+	if err := st.conn.CloseDeadline(time.Now().Add(closeTimeout)); err != nil && !errors.Is(err, amqp.ErrClosed) {
 		log.Printf("Error closing connection: [%s]\n", err)
 	}
 }
