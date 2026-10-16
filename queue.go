@@ -4,11 +4,11 @@ import amqp "github.com/rabbitmq/amqp091-go"
 
 // CreateQueue creates a queue
 func (r *rabbit) CreateQueue(config ConfigQueue) (queue amqp.Queue, err error) {
-	if r.chConsumer == nil {
-		err = amqp.ErrClosed
+	st, err := r.current()
+	if err != nil {
 		return
 	}
-	queue, err = r.chConsumer.QueueDeclare(
+	queue, err = st.chConsumer.QueueDeclare(
 		config.Name,
 		config.Durable,
 		config.AutoDelete,
@@ -21,11 +21,11 @@ func (r *rabbit) CreateQueue(config ConfigQueue) (queue amqp.Queue, err error) {
 
 // BindQueueExchange binds a queue to an exchange
 func (r *rabbit) BindQueueExchange(config ConfigBindQueue) (err error) {
-	if r.chConsumer == nil {
-		err = amqp.ErrClosed
+	st, err := r.current()
+	if err != nil {
 		return
 	}
-	err = r.chConsumer.QueueBind(
+	err = st.chConsumer.QueueBind(
 		config.QueueName,
 		config.RoutingKey,
 		config.Exchange,
@@ -37,11 +37,11 @@ func (r *rabbit) BindQueueExchange(config ConfigBindQueue) (err error) {
 
 // UnbindQueueExchange unbinds a queue from an exchange
 func (r *rabbit) UnbindQueueExchange(config ConfigBindQueue) (err error) {
-	if r.chConsumer == nil {
-		err = amqp.ErrClosed
+	st, err := r.current()
+	if err != nil {
 		return
 	}
-	err = r.chConsumer.QueueUnbind(
+	err = st.chConsumer.QueueUnbind(
 		config.QueueName,
 		config.RoutingKey,
 		config.Exchange,

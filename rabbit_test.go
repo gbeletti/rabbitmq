@@ -14,6 +14,11 @@ import (
 var waitFlag = flag.Bool("wait", false, "wait after test is done")
 
 func setupRabbitContainer(t *testing.T) (uri, uiURL string) {
+	_, uri, uiURL = startRabbitContainer(t)
+	return
+}
+
+func startRabbitContainer(t *testing.T) (container testcontainers.Container, uri, uiURL string) {
 	ctx := context.Background()
 	req := testcontainers.ContainerRequest{
 		Image:        "rabbitmq:3-management-alpine",
