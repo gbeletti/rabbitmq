@@ -14,3 +14,7 @@
 # Dependency directories (remove the comment below to include it)
 # vendor/
 coverage.out
+
+# Claude Code: cópias de rules do marketplace, CLAUDE.md local e config da máquina
+.claude/
+CLAUDE.md
