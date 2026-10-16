@@ -9,7 +9,9 @@ import (
 
 // ConfigConnection is the configuration for the connection
 type ConfigConnection struct {
-	URI           string
+	URI string
+	// PrefetchCount is the Qos of the channel of each Consume call: how many deliveries the broker sends to
+	// that consumer without an ack. 0 means no limit.
 	PrefetchCount int
 	// PublisherConfirms puts the producer channel in confirm mode: Publish waits for the broker to confirm
 	// the message and fails when it doesn't (see ErrNotConfirmed). Off, Publish returns once the message is
@@ -26,8 +28,10 @@ type ConfigQueue struct {
 	Durable    bool
 	AutoDelete bool
 	Exclusive  bool
-	NoWait     bool
-	Args       amqp.Table
+	// NoWait does not wait for the broker's reply, so a refusal does not come back to this call: the broker
+	// closes the declarations channel afterwards, and the next declaration may fail with this one's error.
+	NoWait bool
+	Args   amqp.Table
 }
 
 // ConfigBindQueue is the configuration for the bind to queue
@@ -35,8 +39,10 @@ type ConfigBindQueue struct {
 	QueueName  string
 	Exchange   string
 	RoutingKey string
-	NoWait     bool
-	Args       amqp.Table
+	// NoWait does not wait for the broker's reply, so a refusal does not come back to this call: the broker
+	// closes the declarations channel afterwards, and the next declaration may fail with this one's error.
+	NoWait bool
+	Args   amqp.Table
 }
 
 // ConfigExchange is the configuration for the exchange
@@ -46,8 +52,10 @@ type ConfigExchange struct {
 	Durable    bool
 	AutoDelete bool
 	Internal   bool
-	NoWait     bool
-	Args       amqp.Table
+	// NoWait does not wait for the broker's reply, so a refusal does not come back to this call: the broker
+	// closes the declarations channel afterwards, and the next declaration may fail with this one's error.
+	NoWait bool
+	Args   amqp.Table
 }
 
 // ConfigConsume is the configuration for the consumer.
@@ -55,8 +63,9 @@ type ConfigExchange struct {
 // ExecuteConcurrent runs each delivery in its own goroutine, at most MaxConcurrent at once. When MaxConcurrent
 // is not set (0 or less) the limit is ConfigConnection.PrefetchCount, which requires AutoAck off since the broker
 // ignores the prefetch for it; without either bound Consume returns ErrUnboundedConcurrency. The limit is per
-// Consume call: after a reconnection, handlers still running from the previous channel are not counted. With
-// AutoAck, MaxConcurrent bounds the handlers but not the deliveries waiting for one, which amqp buffers.
+// Consume call: it counts the handlers still running on a channel that call reopened, but after a reconnection
+// those from the previous call are not counted. With AutoAck, MaxConcurrent bounds the handlers but not the
+// deliveries waiting for one, which amqp buffers.
 type ConfigConsume struct {
 	QueueName         string
 	Consumer          string
