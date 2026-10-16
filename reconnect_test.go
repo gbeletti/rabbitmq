@@ -60,6 +60,16 @@ func TestProducerChannelReopenedWithoutReconnect(t *testing.T) {
 	// The swapped-in state must keep what serializes the consumer channel RPCs, or this panics.
 	createQueueTest(t, rabbit, "declaredafterreopen")
 
+	// The state swapped in with the new producer channel keeps the prefetch, so a concurrent consumer started
+	// now is still bounded by it and accepted.
+	lateCtx, stopLate := context.WithTimeout(ctx, time.Second)
+	defer stopLate()
+	if err := rabbit.Consume(lateCtx, rabbitmq.NewConfigConsume(queue, "afterreopen"), func(d *amqp.Delivery) {
+		_ = d.Ack(false)
+	}); err != nil {
+		t.Errorf("concurrent consumer started after the producer channel reopened failed: %s", err)
+	}
+
 	select {
 	case <-setups:
 		t.Error("the connection was torn down: setup ran again after a producer channel close")
