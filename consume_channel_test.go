@@ -1,3 +1,5 @@
+//go:build integration
+
 package rabbitmq_test
 
 import (
@@ -39,12 +41,16 @@ func doubleAckFirst() func(d *amqp.Delivery) {
 
 // The broker closing one consumer's channel must not reach the connection nor the other consumers: that
 // Consume reopens its channel and keeps going.
+//
+// Not parallel: under load amqp091-go sometimes gets a frame for the channel it already closed after the 406
+// and closes the whole connection with ErrClosed, which this test would report as a reconnection.
 func TestConsumerChannelReopenedWithoutReconnect(t *testing.T) {
-	uri, _ := setupRabbitContainer(t)
+	uri, _ := sharedRabbit(t)
 	rabbit := rabbitmq.NewRabbitMQ()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	queue, other := "consumerclosed", "consumerclosed-other"
+	queue := uniqueName("consumerclosed")
+	other := queue + "-other"
 	setups, exited := keepConnection(t, ctx, rabbit, uri, queue)
 	waitSignal(t, setups, 20*time.Second, "first setup")
 	createQueueTest(t, rabbit, other)
@@ -83,11 +89,12 @@ func TestConsumerChannelReopenedWithoutReconnect(t *testing.T) {
 // channel close did before it had a channel of its own: it tears the connection down, so the setup runs again
 // and restarts the consumers, and it returns nil.
 func TestConsumerChannelNotReopenedReconnects(t *testing.T) {
-	uri, _ := setupRabbitContainer(t)
+	t.Parallel()
+	uri, _ := sharedRabbit(t)
 	rabbit := rabbitmq.NewRabbitMQ()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	queue := "consumernotreopened"
+	queue := uniqueName("consumernotreopened")
 	setups, exited := keepConnection(t, ctx, rabbit, uri, queue)
 	waitSignal(t, setups, 20*time.Second, "first setup")
 
@@ -117,7 +124,8 @@ func TestConsumerChannelNotReopenedReconnects(t *testing.T) {
 // A consumer's channel stays open until its handlers are done, so one still running when Consume returns
 // can ack, and the delivery is not redelivered.
 func TestHandlerAcksAfterConsumeReturned(t *testing.T) {
-	uri, _ := setupRabbitContainer(t)
+	t.Parallel()
+	uri, _ := sharedRabbit(t)
 	rabbit := rabbitmq.NewRabbitMQ()
 	if _, err := rabbit.Connect(rabbitmq.ConfigConnection{URI: uri, PrefetchCount: 1}); err != nil {
 		t.Fatalf("failed to connect to rabbitmq: %s", err)
@@ -125,7 +133,7 @@ func TestHandlerAcksAfterConsumeReturned(t *testing.T) {
 	defer closeConnection(t, rabbit)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	queue := "lateack"
+	queue := uniqueName("lateack")
 	createQueueTest(t, rabbit, queue)
 	publishTest(t, ctx, rabbit, "", queue, "late ack")
 
@@ -211,7 +219,8 @@ func deleteQueueWhenUnconsumed(t *testing.T, uri, queue string) {
 // A delivery waiting for a handler slot when the broker closes the channel is already back in the queue, so
 // it must not reach the handler: it comes again on the reopened channel and would be processed twice.
 func TestDeliveryWaitingForSlotDroppedWhenChannelCloses(t *testing.T) {
-	uri, _ := setupRabbitContainer(t)
+	t.Parallel()
+	uri, _ := sharedRabbit(t)
 	rabbit := rabbitmq.NewRabbitMQ()
 	if _, err := rabbit.Connect(rabbitmq.ConfigConnection{URI: uri, PrefetchCount: 5}); err != nil {
 		t.Fatalf("failed to connect to rabbitmq: %s", err)
@@ -219,7 +228,7 @@ func TestDeliveryWaitingForSlotDroppedWhenChannelCloses(t *testing.T) {
 	defer closeConnection(t, rabbit)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	queue := "waitingforslot"
+	queue := uniqueName("waitingforslot")
 	createQueueTest(t, rabbit, queue)
 	publishTest(t, ctx, rabbit, "", queue, "m1")
 	publishTest(t, ctx, rabbit, "", queue, "m2")

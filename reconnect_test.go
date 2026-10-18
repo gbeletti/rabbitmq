@@ -1,3 +1,5 @@
+//go:build integration
+
 package rabbitmq_test
 
 import (
@@ -32,11 +34,12 @@ func waitSignal(t *testing.T, ch <-chan struct{}, timeout time.Duration, what st
 }
 
 func TestProducerChannelReopenedWithoutReconnect(t *testing.T) {
-	uri, _ := setupRabbitContainer(t)
+	t.Parallel()
+	uri, _ := sharedRabbit(t)
 	rabbit := rabbitmq.NewRabbitMQ()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	queue := "producerclosed"
+	queue := uniqueName("producerclosed")
 	setups, exited := keepConnection(t, ctx, rabbit, uri, queue)
 	waitSignal(t, setups, 20*time.Second, "first setup")
 
@@ -58,7 +61,7 @@ func TestProducerChannelReopenedWithoutReconnect(t *testing.T) {
 	publishUntilReceived(t, ctx, rabbit, queue, received, "after producer close")
 
 	// The swapped-in state must keep the declarations channel and its lock, or this panics.
-	createQueueTest(t, rabbit, "declaredafterreopen")
+	createQueueTest(t, rabbit, uniqueName("declaredafterreopen"))
 
 	// The state swapped in with the new producer channel keeps the prefetch, so a concurrent consumer started
 	// now is still bounded by it and accepted.
@@ -113,6 +116,7 @@ func publishUntilReceived(t *testing.T, ctx context.Context, rabbit rabbitmq.Pub
 }
 
 func TestReconnectAfterConnectionDropped(t *testing.T) {
+	t.Parallel()
 	container, uri, _ := startRabbitContainer(t)
 	rabbit := rabbitmq.NewRabbitMQ()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -135,6 +139,7 @@ func TestReconnectAfterConnectionDropped(t *testing.T) {
 }
 
 func TestKeepConnectionStopsOnCancelWithBrokerDown(t *testing.T) {
+	t.Parallel()
 	container, uri, _ := startRabbitContainer(t)
 	rabbit := rabbitmq.NewRabbitMQ()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -160,7 +165,8 @@ func TestKeepConnectionStopsOnCancelWithBrokerDown(t *testing.T) {
 }
 
 func TestConnectSupersedesPreviousConnection(t *testing.T) {
-	uri, _ := setupRabbitContainer(t)
+	t.Parallel()
+	uri, _ := sharedRabbit(t)
 	rabbit := rabbitmq.NewRabbitMQ()
 	config := rabbitmq.ConfigConnection{URI: uri}
 	first, err := rabbit.Connect(config)

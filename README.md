@@ -179,6 +179,28 @@ The returned message carries no delivery tag, and its own fields don't identify 
 
 The context bounds the wait for the confirm, not the write to the socket. When the broker stops reading from publishers (memory or disk alarm) and the socket buffer fills up, `Publish` blocks past the context, as it does without confirms.
 
+## Running the tests
+
+The unit tests need nothing but Go:
+
+```sh
+go test -race ./...
+```
+
+The integration tests run against a real RabbitMQ started with [testcontainers](https://golang.testcontainers.org/), so they need Docker. They sit behind the `integration` build tag:
+
+```sh
+go test -race -tags=integration ./...
+```
+
+Most of them share one broker, started by the first test that needs it, and run in parallel; each names its queues and exchanges with a unique suffix, so they don't see each other's messages, nor those of a previous run of `-count`. The tests that stop the broker, close its connections or change its memory watermark get a broker of their own.
+
+Pass `-wait` to keep `TestRabbit`'s broker up for 60 seconds after it runs, to look at it in the management UI:
+
+```sh
+go test -tags=integration -run TestRabbit -v ./... -args -wait
+```
+
 ## Reference
 
 This library uses [rabbitmq/amqp091-go](https://github.com/rabbitmq/amqp091-go). To better understand the options for the queues and exchanges I suggest their documentation.
