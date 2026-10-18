@@ -1,3 +1,5 @@
+//go:build integration
+
 package rabbitmq_test
 
 import (
@@ -14,7 +16,8 @@ import (
 // queue right away, with the connection still up. The empty consumer tag also checks that Cancel reaches
 // the consumer whose tag was generated.
 func TestConsumeRequeuesBufferedDeliveriesOnCancel(t *testing.T) {
-	uri, _ := setupRabbitContainer(t)
+	t.Parallel()
+	uri, _ := sharedRabbit(t)
 	rabbit := rabbitmq.NewRabbitMQ()
 	if _, err := rabbit.Connect(rabbitmq.ConfigConnection{URI: uri, PrefetchCount: 10}); err != nil {
 		t.Fatalf("failed to connect to rabbitmq: %s", err)
@@ -23,7 +26,7 @@ func TestConsumeRequeuesBufferedDeliveriesOnCancel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	queue := "requeueoncancel"
+	queue := uniqueName("requeueoncancel")
 	createQueueTest(t, rabbit, queue)
 	const total = 5
 	for i := 0; i < total; i++ {

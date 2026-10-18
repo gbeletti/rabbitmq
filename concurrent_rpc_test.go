@@ -1,3 +1,5 @@
+//go:build integration
+
 package rabbitmq_test
 
 import (
@@ -15,14 +17,15 @@ import (
 // each other's reply and failed with "unexpected command received". The consumers' basic.consume and
 // basic.cancel run alongside them, each on its consumer's channel.
 func TestConcurrentDeclarationsAndConsumers(t *testing.T) {
-	uri, _ := setupRabbitContainer(t)
+	t.Parallel()
+	uri, _ := sharedRabbit(t)
 	rabbit := rabbitmq.NewRabbitMQ()
 	if _, err := rabbit.Connect(rabbitmq.ConfigConnection{URI: uri, PrefetchCount: 1}); err != nil {
 		t.Fatalf("failed to connect to rabbitmq: %s", err)
 	}
 	defer closeConnection(t, rabbit)
 
-	exchange := "concurrentrpc"
+	exchange := uniqueName("concurrentrpc")
 	createExchangeTest(t, rabbit, exchange, "direct")
 
 	// An already canceled context makes Consume run basic.consume and then basic.cancel right away.
@@ -37,7 +40,7 @@ func TestConcurrentDeclarationsAndConsumers(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := range rounds {
-				if err := consumerChannelRPCs(canceled, rabbit, exchange, fmt.Sprintf("concurrentrpc-%d-%d", w, i)); err != nil {
+				if err := consumerChannelRPCs(canceled, rabbit, exchange, fmt.Sprintf("%s-%d-%d", exchange, w, i)); err != nil {
 					errs <- err
 					return
 				}

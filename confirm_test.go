@@ -1,3 +1,5 @@
+//go:build integration
+
 package rabbitmq_test
 
 import (
@@ -22,11 +24,12 @@ func connectWithConfirms(t *testing.T, rabbit rabbitmq.RabbitMQ, uri, queue stri
 }
 
 func TestPublishConfirmed(t *testing.T) {
-	uri, _ := setupRabbitContainer(t)
+	t.Parallel()
+	uri, _ := sharedRabbit(t)
 	rabbit := rabbitmq.NewRabbitMQ()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	queue := "confirmed"
+	queue := uniqueName("confirmed")
 	connectWithConfirms(t, rabbit, uri, queue)
 	defer closeConnection(t, rabbit)
 
@@ -60,11 +63,12 @@ func TestPublishConfirmed(t *testing.T) {
 }
 
 func TestPublishToMissingExchangeNotConfirmed(t *testing.T) {
-	uri, _ := setupRabbitContainer(t)
+	t.Parallel()
+	uri, _ := sharedRabbit(t)
 	rabbit := rabbitmq.NewRabbitMQ()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	queue := "notconfirmed"
+	queue := uniqueName("notconfirmed")
 	connectWithConfirms(t, rabbit, uri, queue)
 	defer closeConnection(t, rabbit)
 
@@ -105,6 +109,7 @@ func TestPublishToMissingExchangeNotConfirmed(t *testing.T) {
 }
 
 func TestPublishConfirmHonorsContext(t *testing.T) {
+	t.Parallel()
 	container, uri, _ := startRabbitContainer(t)
 	rabbit := rabbitmq.NewRabbitMQ()
 	queue := "confirmctx"

@@ -1,3 +1,5 @@
+//go:build integration
+
 package rabbitmq_test
 
 import (
@@ -13,11 +15,12 @@ import (
 )
 
 func TestPublishMandatoryUnroutable(t *testing.T) {
-	uri, _ := setupRabbitContainer(t)
+	t.Parallel()
+	uri, _ := sharedRabbit(t)
 	rabbit := rabbitmq.NewRabbitMQ()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	const exchange, queue = "unroutable", "routed"
+	exchange, queue := uniqueName("unroutable"), uniqueName("routed")
 	connectWithConfirms(t, rabbit, uri, queue)
 	defer closeConnection(t, rabbit)
 	createExchangeTest(t, rabbit, exchange, "direct")
@@ -112,7 +115,8 @@ func TestPublishMandatoryUnroutable(t *testing.T) {
 		// CC and BCC are extra routing keys in any exchange type (sender-selected distribution), so two
 		// messages equal in exchange, routing key, ids and body route differently. The broker strips BCC, so
 		// the return can't be told apart by that header either.
-		const ccQueue, pairs = "cc", 100
+		const pairs = 100
+		ccQueue := uniqueName("cc")
 		createQueueTest(t, rabbit, ccQueue)
 		bindQueueTest(t, rabbit, exchange, ccQueue)
 		var wg sync.WaitGroup
@@ -155,12 +159,13 @@ func TestPublishMandatoryUnroutable(t *testing.T) {
 	})
 }
 
+// Not parallel: it counts the goroutines of the whole process.
 func TestReopenedProducerChannelLeavesNoListener(t *testing.T) {
-	uri, _ := setupRabbitContainer(t)
+	uri, _ := sharedRabbit(t)
 	rabbit := rabbitmq.NewRabbitMQ()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	queue := "reopened"
+	queue := uniqueName("reopened")
 	connectWithConfirms(t, rabbit, uri, queue)
 	defer closeConnection(t, rabbit)
 

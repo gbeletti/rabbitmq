@@ -1,3 +1,5 @@
+//go:build integration
+
 package rabbitmq_test
 
 import (
@@ -10,7 +12,8 @@ import (
 )
 
 func TestRabbit(t *testing.T) {
-	uri, uiURL := setupRabbitContainer(t)
+	t.Parallel()
+	uri, uiURL := sharedRabbit(t)
 	rabbit := rabbitmq.NewRabbitMQ()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
@@ -28,8 +31,8 @@ func TestRabbit(t *testing.T) {
 		t.Error("rabbitmq connection closed")
 	}
 	msg := "Hello World!"
-	queue := "testqueue"
-	exchange := "testexchange"
+	queue := uniqueName("testqueue")
+	exchange := uniqueName("testexchange")
 	createQueueTest(t, rabbit, queue)
 	publishAndConsume(t, ctx, rabbit, "", queue, msg)
 	createExchangeTest(t, rabbit, exchange, "direct")

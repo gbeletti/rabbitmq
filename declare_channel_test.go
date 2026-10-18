@@ -1,3 +1,5 @@
+//go:build integration
+
 package rabbitmq_test
 
 import (
@@ -13,11 +15,12 @@ import (
 // A declaration the broker refuses closes the channel it ran on. It must fail only that call: the consumers
 // keep receiving, the connection is not torn down, and the next declaration works.
 func TestFailedDeclarationKeepsConsumers(t *testing.T) {
-	uri, _ := setupRabbitContainer(t)
+	t.Parallel()
+	uri, _ := sharedRabbit(t)
 	rabbit := rabbitmq.NewRabbitMQ()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	queue := "declarefailed"
+	queue := uniqueName("declarefailed")
 	setups, exited := keepConnection(t, ctx, rabbit, uri, queue)
 	waitSignal(t, setups, 20*time.Second, "first setup")
 
